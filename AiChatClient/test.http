@@ -1,0 +1,17 @@
+# For more info on HTTP files go to https://aka.ms/vs/httpfile
+GET http://192.168.1.46:11434
+
+
+### 获取模型列表
+GET http://192.168.1.46:11434/api/tags
+
+
+### 发送一个简单的生成请求
+POST http://192.168.1.46:11434/api/generate
+Content-Type: application/json
+
+{
+  "model": "Gemma3:1b",
+  "prompt": "你好，能听到吗？",
+  "stream": false
+}

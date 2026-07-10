@@ -11,25 +11,32 @@ namespace AiChatClient.Services.Impl
 {
     public class OllamaService : IOllamaService
     {
-        string url = App.Config["Ollama:BaseUrl"];
-        string model = App.Config["Ollama:Model"];
+        private readonly string _url;
+        private readonly string _model;
         private readonly HttpClient _httpClient;
         public OllamaService(HttpClient httpClient)
         {
             _httpClient = httpClient;
+            _url = App.Config["Ollama:BaseUrl"]!;
+            _model = App.Config["Ollama:Model"]!;
         }
         public async Task<string> GenerateAsync(string prompt)
         {
             var request = new OllamaGenerateRequest
             {
-                Model =model,
+                Model =_model,
                 Prompt = prompt,
                 Stream = false
             };
-            var response = await _httpClient.PostAsJsonAsync(url + "/api/generate", request);
+            var response = await _httpClient.PostAsJsonAsync(_url + "/api/generate", request);
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<OllamaGenerateResponse>();
-            return result?.Response ?? string.Empty;
+            if (result is null)
+            {
+                throw new InvalidOperationException(
+                    "Ollama returned an empty response.");
+            }
+            return result.Response;
         }
     }
 }

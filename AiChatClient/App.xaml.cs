@@ -5,8 +5,10 @@ using System.Net.Http;
 using System.Windows;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AiChatClient
 {
@@ -29,9 +31,18 @@ namespace AiChatClient
 
         private void ConfigureServices(IServiceCollection services)
         {
+            services.AddLogging(builder =>
+            {
+                builder.ClearProviders();
+                builder.AddDebug();
+                builder.SetMinimumLevel(LogLevel.Information);
+            });
+
+            services.AddSingleton<MainViewModel>();
             services.AddSingleton<MainWindow>();
 
             services.AddHttpClient<IOllamaService, OllamaService>();
+            services.AddSingleton<IChatService, ChatService>();
         }
 
         protected override void OnStartup(StartupEventArgs e)

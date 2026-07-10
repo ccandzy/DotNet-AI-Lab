@@ -8,9 +8,14 @@ namespace AiChatClient.Services.Impl
 {
     public class ChatService : IChatService
     {
-        public Task<string> SendAsync(string message)
+        private readonly IOllamaService _ollamaService;
+        public ChatService(IOllamaService ollamaService)
         {
-            throw new NotImplementedException();
+            _ollamaService = ollamaService;
+        }
+        public async Task<string> SendAsync(string message)
+        {
+            return await _ollamaService.GenerateAsync(message);
         }
     }
 }

@@ -1,17 +1,30 @@
 # DotNet AI Lab
 
-Learning AI Application Development with .NET.
+Learning AI Application Development with .NET by building a production-quality AI desktop client.
 
-## Goals
+## Roadmap
 
-- Chat Client
+- [x] WPF Project Setup
+- [x] Dependency Injection
+- [x] HttpClient
+- [x] Ollama Integration
+- [x] MVVM
+- [ ] Streaming
+- [ ] Conversation History
+- [ ] Multi-Model Support
+- [ ] Semantic Kernel
+- [ ] RAG
+- [ ] MCP
+- [ ] AI Agent
 
-- Streaming
+## Tech Stack
 
-- Function Calling
+- .NET 9
+- WPF
+- CommunityToolkit.Mvvm
+- Ollama
+- C#
 
-- RAG
+## Project Structure
 
-- MCP
-
-- AI Agent
+...

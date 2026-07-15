@@ -9,7 +9,7 @@ Learning AI Application Development with .NET by building a production-quality A
 - [x] HttpClient
 - [x] Ollama Integration
 - [x] MVVM
-- [ ] Streaming
+- [x] Streaming
 - [ ] Conversation History
 - [ ] Multi-Model Support
 - [ ] Semantic Kernel

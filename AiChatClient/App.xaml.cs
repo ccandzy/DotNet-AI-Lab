@@ -41,8 +41,8 @@ namespace AiChatClient
             services.AddSingleton<MainViewModel>();
             services.AddSingleton<MainWindow>();
 
-            services.AddHttpClient<IOllamaService, OllamaService>();
-            services.AddSingleton<IChatService, ChatService>();
+            
+            services.AddHttpClient<IChatService, ChatService>();
         }
 
         protected override void OnStartup(StartupEventArgs e)

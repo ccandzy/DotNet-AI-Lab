@@ -15,3 +15,13 @@ Content-Type: application/json
   "prompt": "你好，能听到吗？",
   "stream": false
 }
+
+### 发送一个简单的生成请求，使用流式输出
+POST http://192.168.1.46:11434/api/generate
+Content-Type: application/json
+
+{
+  "model": "Gemma3:1b",
+  "prompt": "你好，能听到吗？",
+  "stream": true
+}

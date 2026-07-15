@@ -40,12 +40,13 @@
             </DockPanel>
         </Border>
 
-        <Border Grid.Row="1"
+            <Border Grid.Row="1"
                 Padding="8"
                 BorderBrush="#E5E5E5"
                 BorderThickness="1"
                 CornerRadius="8">
-            <ListBox Background="Transparent"
+            <ListBox x:Name="MessagesListBox"
+                     Background="Transparent"
                      BorderThickness="0"
                      ItemsSource="{Binding Messages}">
                 <ListBox.ItemTemplate>
@@ -84,11 +85,11 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <TextBox Grid.Column="0"
+            <TextBox x:Name="InputTextBox" Grid.Column="0"
                      MinHeight="70"
                      MaxHeight="140"
                      AcceptsReturn="True"
-                     Text="{Binding CurrentInput, UpdateSourceTrigger=PropertyChanged}"
+                      Text="{Binding CurrentInput, UpdateSourceTrigger=PropertyChanged}"
                      TextWrapping="Wrap"
                      VerticalScrollBarVisibility="Auto" />
 
@@ -99,6 +100,12 @@
                         Height="34"
                         Command="{Binding SendCommand}"
                         Content="发送" />
+                <Button Width="90"
+                        Height="34"
+                        Margin="0,6,0,0"
+                        Command="{Binding StopCommand}"
+                        Content="停止"
+                        Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 <TextBlock Margin="0,6,0,0"
                            HorizontalAlignment="Center"
                            Foreground="Gray"

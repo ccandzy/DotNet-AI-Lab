@@ -1,3 +1,5 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+
 namespace AiChatClient.Models
 {
     public enum ChatRole
@@ -7,7 +9,7 @@ namespace AiChatClient.Models
         System
     }
 
-    public class ChatMessage
+    public partial class ChatMessage:ObservableObject
     {
         public ChatMessage(ChatRole role, string content, DateTime timestamp)
         {
@@ -18,7 +20,8 @@ namespace AiChatClient.Models
 
         public ChatRole Role { get; }
 
-        public string Content { get; }
+        [ObservableProperty]
+        private string content="";
 
         public DateTime Timestamp { get; }
 

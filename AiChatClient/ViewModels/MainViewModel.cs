@@ -11,7 +11,8 @@ namespace AiChatClient.ViewModels
     {
         private readonly IChatService _chatService;
         private readonly ILogger<MainViewModel> _logger;
-        private string _currentInput = string.Empty;
+        private CancellationTokenSource? _currentRequestCts;
+        private string _currentInput = string.Empty; 
         private bool _isBusy;
 
         public MainViewModel(IChatService chatService, ILogger<MainViewModel> logger)
@@ -20,6 +21,7 @@ namespace AiChatClient.ViewModels
             _logger = logger;
             Messages = new ObservableCollection<ChatMessage>();
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
+            StopCommand = new RelayCommand(Stop, () => IsBusy);
             ClearCommand = new RelayCommand(ClearMessages, () => Messages.Count > 0);
         }
 
@@ -45,11 +47,14 @@ namespace AiChatClient.ViewModels
                 if (SetProperty(ref _isBusy, value))
                 {
                     SendCommand.NotifyCanExecuteChanged();
+                    StopCommand.NotifyCanExecuteChanged();
                 }
             }
         }
 
         public IAsyncRelayCommand SendCommand { get; }
+
+        public IRelayCommand StopCommand { get; }
 
         public IRelayCommand ClearCommand { get; }
 
@@ -69,21 +74,38 @@ namespace AiChatClient.ViewModels
             AddMessage(ChatRole.User, input);
             CurrentInput = string.Empty;
             IsBusy = true;
-
+            ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now);
+            _currentRequestCts = new CancellationTokenSource();
             try
             {
-                var reply = await _chatService.SendAsync(input);
-                AddMessage(ChatRole.Assistant, reply);
+                
+                Messages.Add(chatMessage);
+                await foreach (var line in _chatService.SendStreamingAsync(input, _currentRequestCts.Token))
+                {
+                    chatMessage.Content += line;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                chatMessage.Content = "已停止生成。";
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send message to AI service. UserInput: {UserInput}", input);
-                AddMessage(ChatRole.Assistant, "AI 服务连接失败，请稍后重试。");
+                chatMessage.Content = "AI 服务连接失败，请稍后重试。";
+
             }
             finally
             {
+                _currentRequestCts?.Dispose();
+                _currentRequestCts = null;
                 IsBusy = false;
             }
+        }
+
+        private void Stop()
+        {
+            _currentRequestCts?.Cancel();
         }
 
         private void ClearMessages()

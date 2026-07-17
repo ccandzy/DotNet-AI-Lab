@@ -14,41 +14,40 @@
     </Window.Resources>
 
     <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0"
-                Margin="0,0,0,8"
-                Padding="12"
-                Background="#F2F2F2"
-                CornerRadius="8">
-            <DockPanel>
-                <TextBlock VerticalAlignment="Center"
-                           FontSize="18"
-                           FontWeight="Bold"
-                           Text="AI Chat" />
-
-                <Button Width="72"
-                        Height="30"
-                        Command="{Binding ClearCommand}"
-                        Content="清空"
-                        DockPanel.Dock="Right" />
-                <ContentControl DockPanel.Dock="Right" />
+        <!-- Left panel: conversations -->
+        <Border Grid.Row="0" Grid.RowSpan="3" Grid.Column="0" Margin="0,0,8,0" Padding="8" Background="#FAFAFA" CornerRadius="8">
+            <DockPanel LastChildFill="True">
+                <Button Content="新会话" Command="{Binding NewConversationCommand}" Height="30" Margin="0,0,0,8" DockPanel.Dock="Top" />
+                <StackPanel>
+                    <ListBox ItemsSource="{Binding Conversations}" SelectedItem="{Binding CurrentConversation, Mode=TwoWay}" DisplayMemberPath="Title" Height="400" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0,8,0,0">
+                        <Button Content="重命名" Width="80" Margin="0,0,8,0" Click="RenameConversation_Click" />
+                        <Button Content="删除" Width="80" Command="{Binding DeleteConversationCommand}" />
+                    </StackPanel>
+                </StackPanel>
             </DockPanel>
         </Border>
 
-            <Border Grid.Row="1"
-                Padding="8"
-                BorderBrush="#E5E5E5"
-                BorderThickness="1"
-                CornerRadius="8">
-            <ListBox x:Name="MessagesListBox"
-                     Background="Transparent"
-                     BorderThickness="0"
-                     ItemsSource="{Binding Messages}">
+        <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="1" Margin="0,0,0,8" Padding="12" Background="#F2F2F2" CornerRadius="8">
+            <DockPanel>
+                <TextBlock VerticalAlignment="Center" FontSize="18" FontWeight="Bold" Text="AI Chat" />
+
+                <Button Width="72" Height="30" Command="{Binding ClearCommand}" Content="清空" DockPanel.Dock="Right" />
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="1" Grid.Column="1" Padding="8" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8">
+            <ListBox x:Name="MessagesListBox" Background="Transparent" BorderThickness="0" ItemsSource="{Binding Messages}">
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="{x:Type models:ChatMessage}">
                         <Grid Margin="0,4">
@@ -79,7 +78,7 @@
             </ListBox>
         </Border>
 
-        <Grid Grid.Row="2" Margin="0,8,0,0">
+        <Grid Grid.Row="2" Grid.Column="1" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

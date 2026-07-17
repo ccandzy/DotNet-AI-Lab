@@ -38,6 +38,8 @@ namespace AiChatClient
                 builder.SetMinimumLevel(LogLevel.Information);
             });
 
+            services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
+            services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
             services.AddSingleton<MainViewModel>();
             services.AddSingleton<MainWindow>();
 

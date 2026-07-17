@@ -10,22 +10,61 @@ namespace AiChatClient.ViewModels
     public class MainViewModel : ObservableObject
     {
         private readonly IChatService _chatService;
+        private readonly IConversationService _conversationService;
         private readonly ILogger<MainViewModel> _logger;
         private CancellationTokenSource? _currentRequestCts;
         private string _currentInput = string.Empty; 
         private bool _isBusy;
+        private readonly ObservableCollection<ChatMessage> _emptyMessages = new();
+        private Conversation? _currentConversation;
 
-        public MainViewModel(IChatService chatService, ILogger<MainViewModel> logger)
+        public MainViewModel(IChatService chatService, IConversationService conversationService, ILogger<MainViewModel> logger)
         {
             _chatService = chatService;
+            _conversationService = conversationService;
             _logger = logger;
-            Messages = new ObservableCollection<ChatMessage>();
+
+            Conversations = _conversationService.Conversations;
+
+            // ensure there is at least one conversation
+            if (Conversations.Count == 0)
+            {
+                var c = _conversationService.CreateConversation();
+                CurrentConversation = c;
+            }
+
+            // Commands
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
             StopCommand = new RelayCommand(Stop, () => IsBusy);
             ClearCommand = new RelayCommand(ClearMessages, () => Messages.Count > 0);
+            NewConversationCommand = new RelayCommand(NewConversation);
+            DeleteConversationCommand = new RelayCommand(DeleteConversation, () => CurrentConversation is not null);
+            RenameConversationCommand = new RelayCommand<string>(RenameConversation);
         }
 
-        public ObservableCollection<ChatMessage> Messages { get; }
+        public ObservableCollection<Conversation> Conversations { get; }
+
+        public Conversation? CurrentConversation
+        {
+            get => _currentConversation;
+            set
+            {
+                if (SetProperty(ref _currentConversation, value))
+                {
+                    // notify that Messages changed
+                    OnPropertyChanged(nameof(Messages));
+                    ClearCommand?.NotifyCanExecuteChanged();
+                }
+            }
+        }
+
+        public ObservableCollection<ChatMessage> Messages => CurrentConversation?.Messages ?? _emptyMessages;
+
+        public IRelayCommand NewConversationCommand { get; }
+
+        public IRelayCommand DeleteConversationCommand { get; }
+
+        public IRelayCommand<string> RenameConversationCommand { get; }
 
         public string CurrentInput
         {
@@ -70,7 +109,6 @@ namespace AiChatClient.ViewModels
             {
                 return;
             }
-
             AddMessage(ChatRole.User, input);
             CurrentInput = string.Empty;
             IsBusy = true;
@@ -80,7 +118,7 @@ namespace AiChatClient.ViewModels
             {
                 
                 Messages.Add(chatMessage);
-                await foreach (var line in _chatService.SendStreamingAsync(input, _currentRequestCts.Token))
+                await foreach (var line in _chatService.SendStreamingAsync(Messages, _currentRequestCts.Token))
                 {
                     chatMessage.Content += line;
                 }
@@ -110,14 +148,46 @@ namespace AiChatClient.ViewModels
 
         private void ClearMessages()
         {
-            Messages.Clear();
+            CurrentConversation?.Messages.Clear();
             ClearCommand.NotifyCanExecuteChanged();
         }
 
         private void AddMessage(ChatRole role, string content)
         {
-            Messages.Add(new ChatMessage(role, content, DateTime.Now));
+            var msg = new ChatMessage(role, content, DateTime.Now);
+            if (CurrentConversation is not null)
+            {
+                CurrentConversation.Messages.Add(msg);
+            }
+            else
+            {
+                // fallback
+                _emptyMessages.Add(msg);
+            }
             ClearCommand.NotifyCanExecuteChanged();
+        }
+
+        private void NewConversation()
+        {
+            var conv = _conversationService.CreateConversation();
+            CurrentConversation = conv;
+        }
+
+        private void DeleteConversation()
+        {
+            if (CurrentConversation is null) return;
+            var id = CurrentConversation.Id;
+            _conversationService.DeleteConversation(id);
+            // pick another conversation if any
+            CurrentConversation = Conversations.FirstOrDefault();
+        }
+
+        private void RenameConversation(string? newTitle)
+        {
+            if (CurrentConversation is null || string.IsNullOrWhiteSpace(newTitle)) return;
+            _conversationService.RenameConversation(CurrentConversation.Id, newTitle.Trim());
+            // update binding
+            OnPropertyChanged(nameof(Conversations));
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Microsoft.VisualBasic;
 using System.Windows;
 using System.Windows.Input;
 using System.Collections.Specialized;
@@ -11,6 +12,8 @@ namespace AiChatClient
     /// </summary>
     public partial class MainWindow : Window
     {
+        private NotifyCollectionChangedEventHandler? _messagesHandler;
+        private System.ComponentModel.PropertyChangedEventHandler? _propertyHandler;
         public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
@@ -18,10 +21,44 @@ namespace AiChatClient
 
             if (viewModel is not null)
             {
-                viewModel.Messages.CollectionChanged += Messages_CollectionChanged;
+                // watch for CurrentConversation changes
+                _propertyHandler = new System.ComponentModel.PropertyChangedEventHandler((s, e) =>
+                {
+                    if (e.PropertyName == nameof(MainViewModel.CurrentConversation))
+                    {
+                        AttachToCurrentConversation(viewModel);
+                    }
+                });
+
+                viewModel.PropertyChanged += _propertyHandler;
+
+                // initial attach
+                AttachToCurrentConversation(viewModel);
             }
 
             InputTextBox.PreviewKeyDown += InputTextBox_PreviewKeyDown;
+        }
+
+        private void AttachToCurrentConversation(MainViewModel vm)
+        {
+            // detach previous
+            if (_messagesHandler is not null)
+            {
+                try
+                {
+                    // find previous conversation
+                    // detach from all to be safe
+                }
+                catch { }
+            }
+
+            // attach to new
+            var conv = vm.CurrentConversation;
+            if (conv is not null)
+            {
+                _messagesHandler = new NotifyCollectionChangedEventHandler(Messages_CollectionChanged);
+                conv.Messages.CollectionChanged += _messagesHandler;
+            }
         }
 
         private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -45,6 +82,22 @@ namespace AiChatClient
                 if (DataContext is MainViewModel vm && vm.SendCommand.CanExecute(null))
                 {
                     vm.SendCommand.Execute(null);
+                }
+            }
+        }
+
+        private void RenameConversation_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not MainViewModel vm || vm.CurrentConversation is null) return;
+
+            var currentTitle = vm.CurrentConversation.Title ?? string.Empty;
+            var input = Interaction.InputBox("重命名会话:", "重命名", currentTitle);
+            if (!string.IsNullOrWhiteSpace(input))
+            {
+                // call VM rename command
+                if (vm.RenameConversationCommand.CanExecute(input))
+                {
+                    vm.RenameConversationCommand.Execute(input);
                 }
             }
         }

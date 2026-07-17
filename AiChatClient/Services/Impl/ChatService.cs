@@ -10,50 +10,27 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AiChatClient.Dtos;
+using AiChatClient.Helpers;
+using AiChatClient.Models;
 
 namespace AiChatClient.Services.Impl
 {
     public class ChatService : IChatService
     {
-        private readonly string _url;
-        private readonly string _model;
+       private readonly IChatProvider _chatProvider;
         private readonly HttpClient _httpClient;
-        public ChatService(HttpClient httpClient)
+        public ChatService(IChatProvider chatProvider, HttpClient httpClient)
         {
+            _chatProvider = chatProvider;   
             _httpClient = httpClient;
-            _url = App.Config["Ollama:BaseUrl"]!;
-            _model = App.Config["Ollama:Model"]!;
-        }
-        public async Task<string> SendAsync(string prompt)
-        {
-            var request = new OllamaGenerateRequest
-            {
-                Model = _model,
-                Prompt = prompt,
-                Stream = false
-            };
-            var response = await _httpClient.PostAsJsonAsync(_url + "/api/generate", request);
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<OllamaGenerateResponse>();
-            if (result is null)
-            {
-                throw new InvalidOperationException(
-                    "Ollama returned an empty response.");
-            }
-            return result.Response;
         }
 
-        public async IAsyncEnumerable<string> SendStreamingAsync(string prompt, CancellationToken cancellationToken = default)
+
+        public async IAsyncEnumerable<string> SendStreamingAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
         {
-            var requestBody = new OllamaGenerateRequest
+            var request = new HttpRequestMessage(HttpMethod.Post, _chatProvider.ApiChatUrl)
             {
-                Model = _model,
-                Prompt = prompt,
-                Stream = true
-            }; 
-            var request = new HttpRequestMessage(HttpMethod.Post, _url + "/api/generate")
-            {
-                Content = JsonContent.Create(requestBody)
+                Content = _chatProvider.CreateHttpContent(messages)
             };
             var response = await  _httpClient.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -64,23 +41,37 @@ namespace AiChatClient.Services.Impl
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var line = await reader.ReadLineAsync();
-                if (line is not null)
+                if (string.IsNullOrWhiteSpace(line))
                 {
-                    var chunk = JsonSerializer.Deserialize<OllamaGenerateResponse>(line);
-                    if (chunk is not null)
-                    {
-                        if(chunk.Done)
-                        {
-                            yield break;
-                        }
-                        //Debug.WriteLine($"Received line: {line}");
-                        yield return chunk.Response;
-                    }
-                    else
-                    {
-                        yield break;
-                    }
+                    // skip empty lines
+                    continue;
                 }
+
+                // Some servers send SSE with a "data: " prefix
+                var payload = line.Trim();
+                if (payload.StartsWith("data: "))
+                {
+                    payload = payload.Substring("data: ".Length);
+                }
+
+                if (payload == "[DONE]")
+                {
+                    yield break;
+                }
+
+                var chunk = _chatProvider.Deserialize(payload);
+
+                if (chunk is null)
+                {
+                    continue;
+                }
+
+                if (chunk.IsCompleted)
+                {
+                    yield break;
+                }
+
+                yield return chunk.Content;
                   
             }
         }

@@ -10,7 +10,7 @@ Learning AI Application Development with .NET by building a production-quality A
 - [x] Ollama Integration
 - [x] MVVM
 - [x] Streaming
-- [ ] Conversation History
+- [x] Conversation History
 - [ ] Multi-Model Support
 - [ ] Semantic Kernel
 - [ ] RAG

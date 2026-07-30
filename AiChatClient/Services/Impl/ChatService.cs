@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Reflection.Metadata;
 using System.Security.Policy;
 using System.Text;
 using System.Text.Json;
@@ -32,8 +33,10 @@ namespace AiChatClient.Services.Impl
             {
                 Content = _chatProvider.CreateHttpContent(messages)
             };
+            Debug.WriteLine($"request.Content:{request.Content}");
             var response = await  _httpClient.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();
+            Debug.WriteLine($"response.Content:{response.Content}");
             var result = await response.Content.ReadAsStreamAsync();
            var reader = new StreamReader(result);
             while (true)

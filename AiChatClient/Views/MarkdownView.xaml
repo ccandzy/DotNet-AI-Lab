@@ -1,0 +1,23 @@
+<UserControl x:Class="AiChatClient.Views.MarkdownView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:AiChatClient.Views"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+             Width="Auto"
+             Height="Auto">
+    <Grid>
+        <!--  Fallback: shows raw markdown text when WebView2 is not available  -->
+        <TextBlock x:Name="FallbackText"
+                   Text="{Binding Markdown, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   TextWrapping="Wrap"
+                   Visibility="Visible" />
+
+        <!--  WebView2 for rich markdown rendering  -->
+        <wv2:WebView2 x:Name="WebView"
+                      MinWidth="580"
+                      MinHeight="30"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      Visibility="Collapsed" />
+    </Grid>
+</UserControl>

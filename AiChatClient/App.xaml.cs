@@ -20,6 +20,7 @@ namespace AiChatClient
         private readonly ServiceProvider _serviceProvider;
         // 全局配置对象，整个程序随处调用
         public static IConfiguration Config { get; private set; }
+        public static IServiceProvider Services { get; private set; }
         public App()
         {
             var services = new ServiceCollection();
@@ -27,6 +28,7 @@ namespace AiChatClient
             ConfigureServices(services);
 
             _serviceProvider = services.BuildServiceProvider();
+            Services = _serviceProvider;
         }
 
         private void ConfigureServices(IServiceCollection services)
@@ -40,6 +42,8 @@ namespace AiChatClient
 
             services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
+            // Markdown renderer service
+            services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             services.AddSingleton<MainViewModel>();
             services.AddSingleton<MainWindow>();
 

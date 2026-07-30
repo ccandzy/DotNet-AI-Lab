@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using AiChatClient.Settings;
 
 namespace AiChatClient.Models
 {
@@ -20,5 +21,10 @@ namespace AiChatClient.Models
         public DateTime UpdatedTime { get; set; }
 
         public string Model { get; set; } = "";
+
+        /// <summary>
+        /// 对话关联的角色
+        /// </summary>
+        public AIRole? Role { get; set; }
     }
 }

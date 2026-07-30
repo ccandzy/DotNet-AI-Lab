@@ -1,7 +1,5 @@
 ## Multi-Provider Architecture
 
-
-
 Lesson 1
 ✅ Provider Architecture
 
@@ -19,10 +17,6 @@ Provider Factory
 
 Lesson 4
 接入第二个 Provider
-
-
-
-
 
 Provider 抽象
 

@@ -66,11 +66,8 @@ namespace AiChatClient
             // Scroll to bottom when new messages arrive
             Dispatcher.InvokeAsync(() =>
             {
-                if (MessagesListBox.Items.Count > 0)
-                {
-                    var last = MessagesListBox.Items[MessagesListBox.Items.Count - 1];
-                    MessagesListBox.ScrollIntoView(last);
-                }
+                // Use ScrollViewer for scrolling instead of ListBox
+                MessagesScrollViewer.ScrollToBottom();
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
 

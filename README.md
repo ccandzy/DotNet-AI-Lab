@@ -11,13 +11,13 @@ Learning AI Application Development with .NET by building a production-quality A
 - [x] MVVM
 - [x] Streaming
 - [x] Conversation History
-- [ ] Conversation Management
+- [x] Conversation Management
 
 2、
-- [ ] Configuration Management
+- [x] Configuration Management
 - [ ] Multi-Model Support
 - [ ] Persistence(SQLite)
-- [ ] Markdown Rendering
+- [x] Markdown Rendering
 - [ ] Logging & Diagnostics
 
 3、

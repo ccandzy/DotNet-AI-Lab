@@ -16,7 +16,7 @@ Learning AI Application Development with .NET by building a production-quality A
 2、
 - [x] Configuration Management
 - [ ] Multi-Model Support
-- [ ] Persistence(SQLite)
+- [x] Persistence(SQLite)
 - [x] Markdown Rendering
 - [ ] Logging & Diagnostics
 

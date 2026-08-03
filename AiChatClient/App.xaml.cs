@@ -11,6 +11,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Repositories;
+using Repositories.Impl;
+using Services;
+using Services.Impl;
 
 namespace AiChatClient
 {
@@ -25,6 +29,7 @@ namespace AiChatClient
         // 全局配置对象，整个程序随处调用
         public static IConfiguration Config { get; private set; }
         public static IServiceProvider Services { get; private set; }
+        private IServiceScope? _appScope;
         public App()
         {
           
@@ -43,47 +48,84 @@ namespace AiChatClient
             {
                 x.UseSqlite(DataBaseConnect);
             });
+
+            services.AddScoped<IAIRoleRepository, AIRoleRepository>();
+            services.AddScoped<IAIRoleService, AIRoleService>();
+
+
             services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
-            services.AddSingleton<MainViewModel>();
-            services.AddSingleton<MainWindow>();
+            services.AddScoped<MainViewModel>();
+            services.AddScoped<MainWindow>();
 
             
             services.AddHttpClient<IChatService, ChatService>();
 
           
 
-            services.AddTransient<DatabaseInitializer>();
+            services.AddScoped<DatabaseInitializer>();
         }
 
-        protected override async void OnStartup(StartupEventArgs e)
+        protected override async void OnStartup(
+    StartupEventArgs e)
         {
             base.OnStartup(e);
-            // 构建配置读取器
+
+
             Config = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .Build(); 
+                .AddJsonFile(
+                    "appsettings.json",
+                    optional: false,
+                    reloadOnChange: true)
+                .Build();
+
+
             var services = new ServiceCollection();
 
             ConfigureServices(services);
 
-            _serviceProvider = services.BuildServiceProvider();
+
+            _serviceProvider =
+                services.BuildServiceProvider();
+
+
             Services = _serviceProvider;
 
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var initializer =
-                    scope.ServiceProvider
-                    .GetRequiredService<DatabaseInitializer>();
 
-                await initializer.InitializeAsync();
-            }
-            var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
+            _appScope = _serviceProvider.CreateScope();
+
+
+            var initializer =
+                _appScope.ServiceProvider
+                .GetRequiredService<DatabaseInitializer>();
+
+            await initializer.InitializeAsync();
+
+
+            var vm =
+                _appScope.ServiceProvider
+                .GetRequiredService<MainViewModel>();
+
+            await vm.InitializeAsync();
+
+
+            var mainWindow =
+                _appScope.ServiceProvider
+                .GetRequiredService<MainWindow>();
+
 
             mainWindow.Show();
+        }
+        protected override void OnExit( ExitEventArgs e)
+        {
+            _appScope?.Dispose();
+
+            _serviceProvider?.Dispose();
+
+            base.OnExit(e);
         }
     }
 

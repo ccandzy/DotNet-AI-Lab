@@ -122,3 +122,124 @@ OnStartup()
 - 实现 `ConversationService` 与 `DatabaseInitializer` 的持久化集成
 - 完成 Mapper 层（Entity ↔ Domain Model 转换）
 - 考虑是否需要 Unit of Work 模式
+
+---
+
+# Sprint 6 Day 4
+
+## 完成功能
+
+- AI Role 数据库读取架构
+- Repository 层（`IAIRoleRepository` / `AIRoleRepository`）
+- Service 层（`IAIRoleService` / `AIRoleService`）
+- DI 生命周期调整（`MainViewModel` / `MainWindow` / `DatabaseInitializer` 从 Singleton 改为 Scoped）
+- `MainViewModel` 改为异步初始化（`InitializeAsync`），从数据库加载 AI Role
+
+## 技术实现
+
+### 数据流（Entity → Repository → Service → ViewModel）
+
+```
+SQLite (aichat.db)
+    ↓ EF Core
+AIRoleEntity
+    ↓ Mapper (AIRoleMapper.ToModel)
+AIRole (Domain Model)
+    ↑
+AIRoleRepository.GetEnabledRolesAsync()
+    ↓ 返回 List<AIRoleEntity>
+AIRoleService.GetRolesAsync()
+    ↓ 返回 List<AIRole>
+MainViewModel.InitializeAsync()
+    ↓ 绑定到 Roles 集合
+UI (ComboBox / List)
+```
+
+### Repository 层
+
+- `IAIRoleRepository`：定义数据访问契约，仅暴露 `GetEnabledRolesAsync()`
+- `AIRoleRepository`：通过 `AppDbContext` 查询 `AIRoles` 表，过滤 `IsEnabled = true`
+- 依赖 `AppDbContext`（Scoped），不直接返回 Domain Model，保持数据源独立性
+
+### Service 层
+
+- `IAIRoleService`：定义业务逻辑契约，`GetRolesAsync()` 返回 `List<AIRole>`
+- `AIRoleService`：调用 Repository 获取 Entity，通过 `AIRoleMapper.ToModel` 转换为 Domain Model
+- 位于 ViewModel 和 Repository 之间，承担 Mapper 调用和潜在业务规则逻辑
+
+### DI 生命周期调整
+
+| 服务 | 旧生命周期 | 新生命周期 | 原因 |
+|------|-----------|-----------|------|
+| `AppDbContext` | Scoped | Scoped | EF Core DbContext 本身就是 Scoped |
+| `IAIRoleRepository` | — | Scoped | 依赖 DbContext，必须 Scoped |
+| `IAIRoleService` | — | Scoped | 依赖 Repository，继承 Scoped |
+| `MainViewModel` | Singleton | **Scoped** | 异步初始化需要 DbContext scope，Scoped 确保生命周期与 Scope 匹配 |
+| `MainWindow` | Singleton | **Scoped** | ViewModel 已改为 Scoped，Window 随之统一 |
+| `DatabaseInitializer` | Transient | **Scoped** | 需要 DbContext，统一改为 Scoped |
+
+**核心原因**：EF Core `DbContext` 是 Scoped 生命周期，不能注入 Singleton 服务。ViewModel 现在需要异步调用 `IAIRoleService.GetRolesAsync()`（底层访问数据库），因此 ViewModel 必须使用 Scoped 生命周期，在 Scope 内完成初始化。
+
+### App 启动流程（更新后）
+
+```
+App 启动
+  ↓
+加载 appsettings.json
+  ↓
+创建 DI 容器（注册 DbContext / Repository / Service / ViewModel / Window）
+  ↓
+创建 Root Scope（_appScope）
+  ↓
+DatabaseInitializer.InitializeAsync()
+  ├─ MigrateAsync() — 应用 Migration
+  └─ SeedRolesAsync() — 写入默认 AI Role（若表为空）
+  ↓
+MainViewModel.InitializeAsync()
+  └─ _aIRoleService.GetRolesAsync() → 从 SQLite 读取所有 AI Role
+  ↓
+MainWindow.Show()
+  ↓
+OnExit → 释放 _appScope 和 _serviceProvider
+```
+
+## 新增文件
+
+| 文件路径 | 作用 |
+|----------|------|
+| `AiChatClient/Repositories/IAIRoleRepository.cs` | AI Role Repository 接口 |
+| `AiChatClient/Repositories/Impl/AIRoleRepository.cs` | AI Role Repository 实现（EF Core 数据访问） |
+| `AiChatClient/Services/IAIRoleService.cs` | AI Role Service 接口 |
+| `AiChatClient/Services/Impl/AIRoleService.cs` | AI Role Service 实现（调用 Repository + Mapper） |
+
+## 架构调整
+
+### 为什么不让 ViewModel 直接访问 EF Core？
+
+- **职责分离**：ViewModel 属于 UI 层，不应感知数据访问细节
+- **可测试性**：Repository / Service 可 Mock，ViewModel 单元测试不依赖数据库
+- **可维护性**：查询逻辑集中在 Repository，ViewModel 只关心消费数据
+- **解耦**：未来切换数据源（如 API）只需替换 Repository 实现
+
+### 为什么增加 Service 层？
+
+- **业务逻辑边界**：Service 承担 Mapper 转换和潜在的领域规则（如权限、过滤、缓存）
+- **接口隔离**：ViewModel 依赖 `IAIRoleService` 而非具体实现，支持单元测试和 AOP
+- **分层清晰**：Repository 只管数据读写，Service 管业务编排，ViewModel 只管 UI 状态
+
+## 当前状态
+
+- EF Core + SQLite 持久化基础已完成（Day 1-3）
+- AI Role 数据访问层已完成（Repository + Service）
+- DI 生命周期调整为 Scoped，启动流程支持异步初始化
+- **AI Role 已从硬编码改为数据库读取**
+- 等待：Conversation / ChatMessage 的 Repository + Service 接入
+
+## 下一步计划
+
+- 实现 `ConversationRepository` + `ConversationService`
+- 实现 `ChatMessageRepository` + `ChatMessageService`（或复用 ConversationService）
+- 完善对话列表加载流程（启动时从数据库恢复历史对话）
+- 考虑是否引入 Unit of Work 模式（当前 DbContext 已天然支持事务）
+- 补充单元测试（Repository / Service Mock）
+- 考虑将 Seed 角色数扩展为医疗设备相关角色（呼应项目定位）

@@ -243,3 +243,90 @@ OnExit → 释放 _appScope 和 _serviceProvider
 - 考虑是否引入 Unit of Work 模式（当前 DbContext 已天然支持事务）
 - 补充单元测试（Repository / Service Mock）
 - 考虑将 Seed 角色数扩展为医疗设备相关角色（呼应项目定位）
+
+---
+
+# Sprint 6 Day 6
+
+## 完成功能
+
+- `ConversationRepository` 完整实现（全量 CRUD + XML 注释）
+- `ConversationService` 注入 Repository 并实现 `InitializeAsync`
+- `MainViewModel` 启动时调用 `InitializeAsync`，历史对话从 SQLite 恢复
+- 删除阻塞编译的旧占位方法，全链路打通
+
+## 技术实现
+
+### ConversationRepository
+
+| 方法 | 逻辑 |
+|------|------|
+| `GetAllAsync()` | 查询所有 Conversation，Include AIRole + Messages，按 UpdatedTime 降序 |
+| `GetByIdAsync(id)` | 同上 Include 策略，用 `FirstOrDefaultAsync` 单条查询 |
+| `AddAsync(entity)` | `AddAsync` + `SaveChangesAsync`，Guid 由调用方预生成 |
+| `UpdateAsync(entity)` | 显式设 `EntityState.Modified` + `SaveChangesAsync`，脱离追踪上下文也能更新 |
+| `DeleteAsync(id)` | 先查后删，找不到抛 `KeyNotFoundException`，不静默吞错 |
+
+- 全方法添加 XML `<summary>` / `<param>` / `<returns>` / `<exception>` 注释
+- `ConversationEntity.Id` 为 `ValueGeneratedNever`，Guid 由服务层在 `CreateConversation()` 中生成
+
+### ConversationService
+
+- 通过构造函数注入 `IConversationRepository`
+- `InitializeAsync()`：调用 `_conversationRepository.GetAllAsync()`，用 `ConversationMapper.ToModel` 逐个转 Domain Model，`Clear()` 后再 `Add` 到 `ObservableCollection`
+- `CreateConversation` / `DeleteConversation` / `RenameConversation` 保持原有业务逻辑
+
+### MainViewModel
+
+- `InitializeAsync()` 末尾追加 `await _conversationService.InitializeAsync()`
+- 启动顺序：AI Role 先加载 → 对话再加载，确保对话的 AIRole 导航属性完整
+
+### 数据流（新增对话持久化）
+
+```
+App 启动
+  ↓
+MainViewModel.InitializeAsync()
+  ├─ _aIRoleService.GetRolesAsync()        → 加载 AI Role（Day 4）
+  └─ _conversationService.InitializeAsync() → 加载历史对话（Day 6）
+       ↓
+ConversationRepository.GetAllAsync()
+       ↓ EF Core（Include AIRole + Messages）
+ConversationEntity[]
+       ↓ ConversationMapper.ToModel
+Conversation[]
+       ↓
+ObservableCollection<Conversation>（UI 绑定）
+```
+
+## 新增文件
+
+| 文件路径 | 作用 |
+|----------|------|
+| `AiChatClient/Repositories/IConversationRepository.cs` | 对话 Repository 接口 |
+| `AiChatClient/Repositories/Impl/ConversationRepository.cs` | 对话 Repository 实现（EF Core 全量 CRUD） |
+
+## 修改文件
+
+| 文件路径 | 变更内容 |
+|----------|----------|
+| `AiChatClient/Services/IConversationService.cs` | 新增 `Task InitializeAsync()` 方法签名 |
+| `AiChatClient/Services/Impl/ConversationService.cs` | 注入 `IConversationRepository`；实现 `InitializeAsync` 从 DB 恢复历史对话 |
+| `AiChatClient/ViewModels/MainViewModel.cs` | `InitializeAsync` 末尾追加 `await _conversationService.InitializeAsync()` |
+| `docs/Sprint 6.md` | 追加本日开发记录 |
+
+## 当前状态
+
+- EF Core + SQLite 持久化基础已完成（Day 1-3）
+- AI Role 数据访问层已完成（Day 4）
+- **Conversation 数据访问层已完成**（Day 6）：Repository → Service → ViewModel 全链路打通
+- 对话列表启动时自动从 SQLite 恢复，AI Role 从数据库读取，不再硬编码
+- 待完成：ChatMessage 的 CRUD、新建/删除对话的数据库持久化（当前只在内存 ObservableCollection 中操作）
+
+## 下一步计划
+
+- 实现 `ChatMessageRepository` / `ChatMessageService`，完成消息的数据库读写
+- `ConversationService.CreateConversation` / `DeleteConversation` 写入 SQLite（当前仅内存操作）
+- 完善 Migration：ChatMessage 完整 CRUD 持久化
+- 补充单元测试（Repository / Service Mock）
+- 后续可考虑扩展 Seed 角色为医疗设备相关角色（呼应项目定位）

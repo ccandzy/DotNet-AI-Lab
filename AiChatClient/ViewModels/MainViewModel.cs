@@ -112,6 +112,7 @@ namespace AiChatClient.ViewModels
 
             SelectedRole = Roles.FirstOrDefault();
 
+            await _conversationService.InitializeAsync();
             // ensure there is at least one conversation
             if (Conversations.Count == 0)
             {

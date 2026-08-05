@@ -5,6 +5,7 @@ namespace AiChatClient.Services
 {
     public interface IConversationService
     {
+        Task InitializeAsync();
         ObservableCollection<Conversation> Conversations { get; }
 
         Conversation CreateConversation();

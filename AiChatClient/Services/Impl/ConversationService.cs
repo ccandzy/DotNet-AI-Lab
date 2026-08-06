@@ -2,6 +2,7 @@ using AiChatClient.Mappers;
 using AiChatClient.Models;
 using Repositories;
 using System.Collections.ObjectModel;
+using System.Threading.Tasks;
 
 namespace AiChatClient.Services.Impl
 {
@@ -28,9 +29,7 @@ namespace AiChatClient.Services.Impl
             var entities =
                 await _conversationRepository.GetAllAsync();
 
-
             Conversations.Clear();
-
 
             foreach (var entity in entities)
             {
@@ -40,18 +39,12 @@ namespace AiChatClient.Services.Impl
         }
 
 
-        public Conversation CreateConversation()
+        public async Task<Conversation> CreateConversation(Conversation conv)
         {
-            var conv = new Conversation
-            {
-                Id = Guid.NewGuid(),
-                Title = "New Chat",
-                CreatedTime = DateTime.Now,
-                UpdatedTime = DateTime.Now,
-                Model = string.Empty
-            };
-
+           
             Conversations.Add(conv);
+
+           await  _conversationRepository.AddAsync(ConversationMapper.ToEntity(conv));
 
             return conv;
         }

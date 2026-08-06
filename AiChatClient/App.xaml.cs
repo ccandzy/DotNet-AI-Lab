@@ -52,6 +52,8 @@ namespace AiChatClient
             services.AddScoped<IAIRoleRepository, AIRoleRepository>();
             services.AddScoped<IAIRoleService, AIRoleService>();
 
+            services.AddScoped<IConversationRepository, ConversationRepository>();
+            services.AddScoped<IConversationService, ConversationService>();
 
             services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();

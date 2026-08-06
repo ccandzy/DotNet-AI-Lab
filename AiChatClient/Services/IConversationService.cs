@@ -8,7 +8,7 @@ namespace AiChatClient.Services
         Task InitializeAsync();
         ObservableCollection<Conversation> Conversations { get; }
 
-        Conversation CreateConversation();
+         Task<Conversation> CreateConversation(Conversation conversation);
 
         void DeleteConversation(Guid id);
 

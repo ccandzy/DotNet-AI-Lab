@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
+using System.Threading.Tasks;
 using AiChatClient.Models;
 using AiChatClient.Services;
 using AiChatClient.Settings;
@@ -45,7 +46,7 @@ namespace AiChatClient.ViewModels
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
             StopCommand = new RelayCommand(Stop, () => IsBusy);
             ClearCommand = new RelayCommand(ClearMessages, () => Messages.Count > 0);
-            NewConversationCommand = new RelayCommand(NewConversation);
+            NewConversationCommand = new AsyncRelayCommand(NewConversation);
             DeleteConversationCommand = new RelayCommand(DeleteConversation, () => CurrentConversation is not null);
             RenameConversationCommand = new RelayCommand<string>(RenameConversation);
         }
@@ -116,9 +117,17 @@ namespace AiChatClient.ViewModels
             // ensure there is at least one conversation
             if (Conversations.Count == 0)
             {
-                var c = _conversationService.CreateConversation();
+                var c =await  _conversationService.CreateConversation(new Conversation
+                {
+                    Id = Guid.NewGuid(),
+                    Title = "New Chat",
+                    CreatedTime = DateTime.Now,
+                    UpdatedTime = DateTime.Now,
+                    Model = string.Empty,
+                    Role = SelectedRole
+                });
                 // associate default role
-                c.Role = Roles.FirstOrDefault();
+                c.Role = SelectedRole;
                 CurrentConversation = c;
             }
         }
@@ -282,9 +291,18 @@ namespace AiChatClient.ViewModels
             ClearCommand.NotifyCanExecuteChanged();
         }
 
-        private void NewConversation()
+        private async Task NewConversation()
         {
-            var conv = _conversationService.CreateConversation();
+            var newConv = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Title = "New Chat",
+                CreatedTime = DateTime.Now,
+                UpdatedTime = DateTime.Now,
+                Model = string.Empty,
+                Role=SelectedRole
+            };
+            var conv =await _conversationService.CreateConversation(newConv);
             conv.Role = Roles.FirstOrDefault();
             CurrentConversation = conv;
         }

@@ -330,3 +330,98 @@ ObservableCollection<Conversation>（UI 绑定）
 - 完善 Migration：ChatMessage 完整 CRUD 持久化
 - 补充单元测试（Repository / Service Mock）
 - 后续可考虑扩展 Seed 角色为医疗设备相关角色（呼应项目定位）
+
+---
+
+# Sprint 6 Day 7
+
+## 完成功能
+
+- `ConversationService.CreateConversation` 改造为异步方法，接收 `Conversation` 参数并持久化到 SQLite
+- `IConversationService` 接口签名更新：`CreateConversation(Conversation conv) → Task<Conversation>`
+- DI 容器补全注册：`IConversationRepository` + `IConversationService`
+- `MainViewModel.NewConversationCommand` 改为 `AsyncRelayCommand`，Conversation 对象在 VM 层构建后传入 Service
+- 启动流程 `InitializeAsync` 中默认对话创建也走同一条异步持久化路径
+- `NewConversation` 中的 `conv.Role = Roles.FirstOrDefault()` 改为 `SelectedRole`，与初始化逻辑保持一致
+
+## 架构决策
+
+### Conversation 创建责任上移至 ViewModel
+
+| 层 | 旧行为 | 新行为 |
+|----|--------|--------|
+| `ConversationService` | 自行构建 `Conversation`（Guid / Title / Time） | 只负责接收 + 持久化 |
+| `MainViewModel` | 调用无参 `CreateConversation()` | 构建 `Conversation` 对象，传入 Service |
+
+**原因**：
+- VM 层更清楚当前 UI 上下文（如 `SelectedRole`），Service 不应感知 UI 状态
+- Service 职责收敛为「数据持久化编排」，Domain Model 的构造逻辑留在 VM 层
+- 接口语义更明确：`CreateConversation(conv)` 表示「保存这个已构造好的对话」
+
+### 异步一致性
+
+- `CreateConversation` 从同步改为 `async Task<Conversation>`，与 `ConversationRepository.AddAsync` / `SaveChangesAsync` 的异步链路对齐
+- `NewConversationCommand` 同步 `RelayCommand` → 异步 `AsyncRelayCommand`，防止阻塞 UI 线程写库
+- `InitializeAsync` 中默认对话创建改为 `await`，确保 DB 写入完成后再绑定 `CurrentConversation`
+
+### DI 注册补全
+
+`App.xaml.cs` 在已有 `AIRole` 注册之后，新增：
+
+```csharp
+services.AddScoped<IConversationRepository, ConversationRepository>();
+services.AddScoped<IConversationService, ConversationService>();
+```
+
+两者均为 Scoped，与 `AppDbContext` 生命周期一致。
+
+## 数据流（创建新对话）
+
+```
+User 点击「新建对话」
+  ↓
+MainViewModel.NewConversation()
+  ├─ 构建 Conversation（Guid / Title / SelectedRole）
+  └─ await _conversationService.CreateConversation(conv)
+       ↓
+ConversationService.CreateConversation(conv)
+  ├─ Conversations.Add(conv)            → 内存 ObservableCollection 更新，UI 即时响应
+  └─ await _repository.AddAsync(entity) → SQLite INSERT
+       ↓
+return conv
+  ↓
+CurrentConversation = conv
+```
+
+## 修改文件
+
+| 文件路径 | 变更内容 |
+|----------|----------|
+| `AiChatClient/Services/IConversationService.cs` | `CreateConversation()` → `CreateConversation(Conversation conv)`，返回 `Task<Conversation>` |
+| `AiChatClient/Services/Impl/ConversationService.cs` | 移除内部构造 Conversation；注入 `IConversationRepository`；调用 `AddAsync` + `SaveChangesAsync` 持久化 |
+| `AiChatClient/App.xaml.cs` | DI 注册 `IConversationRepository` / `IConversationService` |
+| `AiChatClient/ViewModels/MainViewModel.cs` | `NewConversationCommand` → `AsyncRelayCommand`；构建 Conversation 传入 Service；`InitializeAsync` 默认对话同理 |
+| `docs/Sprint 6.md` | 追加本日开发记录 |
+
+## Git Commit
+
+```
+dca7a79 sprint6-day7: refactor ConversationService to async, wire DI, persist new conversations to SQLite
+```
+
+## 当前状态
+
+- EF Core + SQLite 持久化基础已完成（Day 1-3）
+- AI Role 数据访问层已完成（Day 4）
+- Conversation 数据访问层已完成（Day 6-7）：Repository → Service → ViewModel 全链路打通
+- **新建对话已写入 SQLite**，启动时从 DB 恢复历史对话
+- AI Role 和 Conversation 均已脱硬编码
+- 待完成：ChatMessage 的 CRUD 持久化
+
+## 下一步计划
+
+- 实现 `ChatMessageRepository` / `ChatMessageService`，完成消息的数据库读写
+- `ConversationService.DeleteConversation` 写入 SQLite（当前仅内存 Remove）
+- `ConversationService.RenameConversation` 写入 SQLite（当前仅内存 Update）
+- 完善 Migration：ChatMessage 完整 CRUD 持久化
+- 补充单元测试（Repository / Service Mock）

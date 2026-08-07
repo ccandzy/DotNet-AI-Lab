@@ -55,7 +55,10 @@ namespace AiChatClient
             services.AddScoped<IConversationRepository, ConversationRepository>();
             services.AddScoped<IConversationService, ConversationService>();
 
-            services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
+            services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
+            services.AddScoped<IChatMessageService, ChatMessageService>();
+
+            //services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();

@@ -5,10 +5,13 @@ using System.Linq;
 using System.Threading.Tasks;
 using AiChatClient.Models;
 using AiChatClient.Services;
+using AiChatClient.Services.Impl;
 using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Repositories;
+using Repositories.Impl;
 using Services;
 using Services.Impl;
 
@@ -19,6 +22,8 @@ namespace AiChatClient.ViewModels
         private readonly IChatService _chatService;
         private readonly IConversationService _conversationService;
         private readonly IAIRoleService _aIRoleService;
+        private readonly IChatMessageService _chatMessageService;    
+
         private readonly ILogger<MainViewModel> _logger;
         private CancellationTokenSource? _currentRequestCts;
         private string _currentInput = string.Empty; 
@@ -28,11 +33,15 @@ namespace AiChatClient.ViewModels
         private AIRole? _selectedRole;
         private bool _isRoleSwitchEnabled = true;
 
-        public MainViewModel(IChatService chatService, IConversationService conversationService,IAIRoleService aIRoleService, ILogger<MainViewModel> logger)
+        public MainViewModel(IChatService chatService, IConversationService conversationService,
+           IChatMessageService chatMessageService,
+            IAIRoleService aIRoleService, ILogger<MainViewModel> logger)
         {
             _chatService = chatService;
             _conversationService = conversationService;
             _aIRoleService = aIRoleService;
+            _chatMessageService = chatMessageService;
+
             _logger = logger;
 
 
@@ -230,10 +239,12 @@ namespace AiChatClient.ViewModels
                 {
                     var systemMsg = new ChatMessage(ChatRole.System, CurrentConversation.Role.SystemPrompt, DateTime.Now);
                     CurrentConversation.Messages.Insert(0, systemMsg);
+                    await _chatMessageService.AddMessageAsync(CurrentConversation.Id, systemMsg);
                 }
             }
 
-            AddMessage(ChatRole.User, input);
+            var userMessage =  AddMessage(ChatRole.User, input);
+            await _chatMessageService.AddMessageAsync(CurrentConversation.Id, userMessage);
             CurrentInput = string.Empty;
             IsBusy = true;
             ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now);
@@ -245,6 +256,11 @@ namespace AiChatClient.ViewModels
                 await foreach (var line in _chatService.SendStreamingAsync(Messages, _currentRequestCts.Token))
                 {
                     chatMessage.Content += line;
+                }
+                // save the assistant message to the database
+                if (CurrentConversation is not null)
+                {
+                    await _chatMessageService.AddMessageAsync(CurrentConversation.Id, chatMessage);
                 }
             }
             catch (OperationCanceledException)
@@ -276,7 +292,7 @@ namespace AiChatClient.ViewModels
             ClearCommand.NotifyCanExecuteChanged();
         }
 
-        private void AddMessage(ChatRole role, string content)
+        private ChatMessage AddMessage(ChatRole role, string content)
         {
             var msg = new ChatMessage(role, content, DateTime.Now);
             if (CurrentConversation is not null)
@@ -289,24 +305,33 @@ namespace AiChatClient.ViewModels
                 _emptyMessages.Add(msg);
             }
             ClearCommand.NotifyCanExecuteChanged();
+            return msg;
         }
 
         private async Task NewConversation()
         {
-            var newConv = new Conversation
+            var conversation = new Conversation
             {
                 Id = Guid.NewGuid(),
-                Title = "New Chat",
-                CreatedTime = DateTime.Now,
-                UpdatedTime = DateTime.Now,
-                Model = string.Empty,
-                Role=SelectedRole
-            };
-            var conv =await _conversationService.CreateConversation(newConv);
-            conv.Role = Roles.FirstOrDefault();
-            CurrentConversation = conv;
-        }
 
+                Title = "New Chat",
+
+                CreatedTime = DateTime.Now,
+
+                UpdatedTime = DateTime.Now,
+
+                Model = string.Empty,
+
+                Role = SelectedRole
+            };
+
+
+            var result =
+                await _conversationService.CreateConversation(conversation);
+
+
+            CurrentConversation = result;
+        }
         private void DeleteConversation()
         {
             if (CurrentConversation is null) return;

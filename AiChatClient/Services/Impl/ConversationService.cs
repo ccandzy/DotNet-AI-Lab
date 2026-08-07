@@ -41,10 +41,17 @@ namespace AiChatClient.Services.Impl
 
         public async Task<Conversation> CreateConversation(Conversation conv)
         {
-           
-            Conversations.Add(conv);
+            if (conv.Role == null)
+            {
+                throw new InvalidOperationException(
+                    "Conversation must have an AI Role.");
+            }
 
-           await  _conversationRepository.AddAsync(ConversationMapper.ToEntity(conv));
+            var entity = ConversationMapper.ToEntity(conv);
+
+            await _conversationRepository.AddAsync(entity);
+
+            Conversations.Add(conv);
 
             return conv;
         }

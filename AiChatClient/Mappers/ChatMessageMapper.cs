@@ -21,11 +21,12 @@ public static class ChatMessageMapper
         return new ChatMessage(role, entity.Content, entity.Timestamp);
     }
 
-    public static ChatMessageEntity ToEntity(ChatMessage model)
+    public static ChatMessageEntity ToEntity(ChatMessage model, Guid conversationId)
     {
         return new ChatMessageEntity
         {
             Id = Guid.NewGuid(),
+            ConversationId =conversationId,
             Role = model.Role switch
             {
                 ChatRole.User => "User",

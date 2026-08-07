@@ -418,10 +418,141 @@ dca7a79 sprint6-day7: refactor ConversationService to async, wire DI, persist ne
 - AI Role 和 Conversation 均已脱硬编码
 - 待完成：ChatMessage 的 CRUD 持久化
 
+# Sprint 6 Day 8
+
+## 完成功能
+
+- `ChatMessageRepository` 完整实现（全量 CRUD + XML 注释）
+- `ChatMessageService` 注入 Repository，实现 `AddMessageAsync` / `GetMessagesAsync`
+- `ChatMessageMapper.ToEntity` 增加 `ConversationId` 参数，消息与对话正确关联
+- `MainViewModel.SendMessageCommand` 消息持久化打通：System Prompt / 用户消息 / 流式助手回复实时写入 SQLite
+- `ConversationService.CreateConversation` 增加 Role 非空校验，防止脏数据入库
+- DI 容器注册 `IChatMessageRepository` / `IChatMessageService`（Scoped）
+- 清理 `App.xaml.cs` 中残留的旧 `IConversationService` Singleton 注释注册
+
+## Git Commit
+
+```
+6606606 sprint6-day8: implement ChatMessage CRUD persistence, wire service into SendMessage flow
+```
+
+## 技术实现
+
+### ChatMessageRepository
+
+| 方法 | 逻辑 |
+|------|------|
+| `AddAsync(entity)` | `_context.ChatMessages.AddAsync` + `SaveChangesAsync`，Guid 由调用方生成 |
+| `GetByConversationIdAsync(id)` | `Where(x => x.ConversationId == id).OrderBy(x => x.Timestamp).ToListAsync()` |
+
+- 依赖 `AppDbContext`（Scoped）
+- 返回 `List<ChatMessageEntity>`，不返回 Domain Model
+
+### ChatMessageService
+
+- 注入 `IChatMessageRepository`
+- `AddMessageAsync(conversationId, message)`：通过 `ChatMessageMapper.ToEntity(message, conversationId)` 构造 Entity，调用 Repository 持久化
+- `GetMessagesAsync(conversationId)`：调用 Repository 获取 Entity 列表，通过 `ChatMessageMapper.ToModel` 转换为 `List<ChatMessage>`
+- Service 层承担 Mapper 转换，Repository 只管数据读写
+
+### ChatMessageMapper 变更
+
+| 方法 | 旧签名 | 新签名 |
+|------|--------|--------|
+| `ToEntity` | `ToEntity(ChatMessage model)` | `ToEntity(ChatMessage model, Guid conversationId)` |
+
+- 新签名为每个 Entity 正确设置 `ConversationId`，保证消息与对话的外键关联
+
+### ConversationService 变更
+
+`CreateConversation` 开头增加 Role 非空守卫：
+
+```csharp
+if (conv.Role == null)
+    throw new InvalidOperationException("Conversation must have an AI Role.");
+```
+
+- 将 `await _repository.AddAsync` 移至 `Conversations.Add(conv)` **之前**，确保 DB 写入失败时内存状态不被污染
+
+### SendMessageCommand 消息持久化链路
+
+```
+SendMessageCommand 执行
+  ↓
+User 输入确认
+  ├─ var systemMsg = new ChatMessage(System, Role.SystemPrompt)
+  │   await _chatMessageService.AddMessageAsync(CurrentConversation.Id, systemMsg)  → SQLite INSERT
+  ├─ var userMessage = AddMessage(User, input)          → UI 即时渲染
+  │   await _chatMessageService.AddMessageAsync(CurrentConversation.Id, userMessage)  → SQLite INSERT
+  └─ 流式循环
+       ├─ chatMessage.Content += line              → UI 实时更新
+       └─ 循环结束后：
+           await _chatMessageService.AddMessageAsync(CurrentConversation.Id, chatMessage)  → SQLite INSERT
+```
+
+- System Prompt 插入 `Messages[0]` 后立即持久化
+- 用户消息通过 `AddMessage` 构造并返回 `ChatMessage` 对象，随后持久化
+- 助手流式回复：每条 chunk 追加到 `chatMessage.Content`，流结束后统一写入 DB
+- 取消 / 错误分支同样写入最终状态（"已停止生成" / "AI 服务连接失败"）
+
+### DI 注册
+
+`App.xaml.cs` 新增（Scoped，与 `AppDbContext` 生命周期一致）：
+
+```csharp
+services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
+services.AddScoped<IChatMessageService, ChatMessageService>();
+```
+
+同时清理掉之前残留的 `IConversationService` Singleton 注释注册，消除歧义。
+
+### 架构决策
+
+#### 为什么消息在流结束后再写 DB？
+
+- 流式回复是逐字符（或逐 token）到达的，若每接收一个 chunk 就写一次 DB，会产生大量无意义的中间写入
+- 流结束后写一条完整消息，与 UI 中 `chatMessage` 对象状态一致，保证数据完整性
+- 如需断点续传或中途恢复，可在未来改为增量写入，当前阶段以「整条消息"原子写入"」优先
+
+#### `AddMessage` 从 void 改为返回 ChatMessage
+
+- 旧：`AddMessage` 只负责 UI 插入，发送侧需重新构造 User 消息对象
+- 新：`AddMessage` 返回 `ChatMessage` 引用，发送侧可直接传入 Service 持久化
+- 减少对象重复创建，保持 UI 和 DB 状态一致
+
+## 新增文件
+
+| 文件路径 | 作用 |
+|----------|------|
+| `AiChatClient/Repositories/IChatMessageRepository.cs` | 消息 Repository 接口 |
+| `AiChatClient/Repositories/Impl/ChatMessageRepository.cs` | 消息 Repository 实现（EF Core 数据访问） |
+| `AiChatClient/Services/IChatMessageService.cs` | 消息 Service 接口 |
+| `AiChatClient/Services/Impl/ChatMessageService.cs` | 消息 Service 实现（Mapper + Repository 编排） |
+
+## 修改文件
+
+| 文件路径 | 变更内容 |
+|----------|----------|
+| `AiChatClient/Mappers/ChatMessageMapper.cs` | `ToEntity` 增加 `conversationId` 参数，写入 `ConversationId` 字段 |
+| `AiChatClient/Services/Impl/ConversationService.cs` | `CreateConversation` 增加 Role 非空校验；DB INSERT 移至内存 Add 之前 |
+| `AiChatClient/App.xaml.cs` | 注册 `IChatMessageRepository` / `IChatMessageService`；清理旧 Singleton 注释 |
+| `AiChatClient/ViewModels/MainViewModel.cs` | 注入 `IChatMessageService`；SendMessageCommand 三段消息持久化；`AddMessage` 返回 `ChatMessage` |
+| `docs/Sprint 6.md` | 追加本日开发记录 |
+
+## 当前状态
+
+- EF Core + SQLite 三层架构打通（Day 1-8）
+- **AIRole / Conversation / ChatMessage 全部完成 CRUD 持久化**
+- SendMessageCommand 运行时实时写库，下次打开对话消息完整恢复
+- AI Role / Conversation / ChatMessage 全部脱硬编码
+- `aichat.db` 中三张表（AIRoles / Conversations / ChatMessages）均有完整数据流验证
+
 ## 下一步计划
 
-- 实现 `ChatMessageRepository` / `ChatMessageService`，完成消息的数据库读写
 - `ConversationService.DeleteConversation` 写入 SQLite（当前仅内存 Remove）
 - `ConversationService.RenameConversation` 写入 SQLite（当前仅内存 Update）
-- 完善 Migration：ChatMessage 完整 CRUD 持久化
+- 启动时 `InitializeAsync` 补充消息加载（当前对话的 Messages 仅含 UI 层内存数据）
 - 补充单元测试（Repository / Service Mock）
+- 考虑将 Seed 角色扩展为医疗设备相关角色（呼应项目定位）
+
+---

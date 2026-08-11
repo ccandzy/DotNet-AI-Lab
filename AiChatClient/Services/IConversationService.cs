@@ -10,8 +10,12 @@ namespace AiChatClient.Services
 
          Task<Conversation> CreateConversation(Conversation conversation);
 
-        void DeleteConversation(Guid id);
+        Task DeleteConversationAsync(Guid id);
 
-        bool RenameConversation(Guid id, string newTitle);
+        /// <summary>
+        /// 重命名会话（同时更新内存集合与数据库）。
+        /// </summary>
+        /// <returns>会话存在且重命名成功时返回 <c>true</c>，否则返回 <c>false</c>。</returns>
+        Task<bool> RenameConversationAsync(Guid id, string newTitle);
     }
 }

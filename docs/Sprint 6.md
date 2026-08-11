@@ -556,3 +556,120 @@ services.AddScoped<IChatMessageService, ChatMessageService>();
 - 考虑将 Seed 角色扩展为医疗设备相关角色（呼应项目定位）
 
 ---
+
+# Sprint 6 Day 9
+
+## 完成功能
+
+- 重命名按钮 MVVM 化：XAML `Click` 事件 → `Command` 绑定，移除 code-behind 事件处理及 VB `Interaction.InputBox`
+- 新增 `IDialogService` 抽象 + `DialogService` 实现 + `InputDialog` WPF 输入对话框（替代 WinForms 风格弹窗）
+- `RenameConversationCommand` 重构：`RelayCommand<string>`（无 CanExecute、从未被 XAML 使用）→ `AsyncRelayCommand` + `CanExecute(CurrentConversation is not null)`
+- `Conversation.Title` 实现变更通知（继承 `ObservableObject`），重命名后列表即时刷新
+- 重命名持久化到 SQLite：`RenameConversation`（仅内存）→ `RenameConversationAsync`（内存 + `UpdateAsync` 落库）
+- 修复其他 AI 改动引入的删除功能回归：`DeleteConversation` 被改为同步且丢失 DB 删除 → 恢复 `DeleteConversationAsync` 异步 + 落库
+- 移除 `MainViewModel` 构造函数中 fire-and-forget 的 `InitializeAsync()` 调用，消除双重初始化竞态
+- `InitializeAsync` 增加重入保护（`_isInitialized` 标志）
+- 清理 `MainViewModel` 重复 `using`（消除 CS0105 警告）
+
+## 技术实现
+
+### 重命名按钮 MVVM 重构
+
+| 层 | 旧行为 | 新行为 |
+|----|--------|--------|
+| `MainWindow.xaml` | `Click="RenameConversation_Click"` | `Command="{Binding RenameConversationCommand}"` |
+| `MainWindow.xaml.cs` | `RenameConversation_Click` + VB `Interaction.InputBox` 弹窗 | 处理程序与 `Microsoft.VisualBasic` using 全部移除 |
+| `MainViewModel` | `RelayCommand<string>`，无 CanExecute，弹窗逻辑在 View | `AsyncRelayCommand` + `CanExecute`，弹窗通过 `IDialogService` 在 VM 内发起 |
+| `ConversationService` | 同步 `RenameConversation`，仅更新内存 | 异步 `RenameConversationAsync`，内存 + DB 双写 |
+
+数据流：
+
+```
+点击「重命名」按钮
+  ↓ Command 绑定
+RenameConversationCommand（AsyncRelayCommand + CanExecute）
+  ↓
+RenameConversationAsync()
+  ├─ _dialogService.ShowInputDialog()  → InputDialog 获取新名称（取消返回 null 直接退出）
+  ├─ 校验：空白 / 名称未变化 直接 return
+  └─ await _conversationService.RenameConversationAsync(id, title)
+       ├─ Conversations 内存项 Title/UpdatedTime 更新 → Title INPC → 列表即时刷新
+       └─ GetByIdAsync + ConversationMapper.UpdateEntity + UpdateAsync → SQLite UPDATE
+```
+
+### 输入对话框服务（IDialogService）
+
+- `IDialogService.ShowInputDialog(title, prompt, defaultValue)` 返回 `string?`，取消/关闭返回 `null`
+- ViewModel 只依赖抽象，不感知具体 View，可测试、可替换（未来可换自定义样式对话框）
+- `DialogService`（`Services/Impl`）通过 `Application.Current.MainWindow` 设置 Owner，居中弹出
+- `InputDialog`（`Views/Dialogs`）为纯 View：自动聚焦 + 全选、Enter 确定、Esc 取消，无业务逻辑
+
+### 列表刷新修复（Title 变更通知）
+
+- 旧方案在 VM 里 `OnPropertyChanged(nameof(Conversations))`：重算绑定时返回同一集合实例，WPF 引用相等判定值未变，**列表不刷新**（隐性 bug）
+- 新方案：`Conversation : ObservableObject`，`Title` 改用 `SetProperty`，变更直接驱动 `DisplayMemberPath` 绑定更新，与 `ChatMessage` 既有约定一致
+
+### 重命名落库
+
+- `IConversationService`：`bool RenameConversation(...)` → `Task<bool> RenameConversationAsync(...)`
+- 服务层先更新内存集合（UI 即时反馈），再 `GetByIdAsync` 取实体、`ConversationMapper.UpdateEntity` 同步变更、`UpdateAsync` 持久化（复用 Day 6 已实现的 `UpdateEntity`）
+- 解决了 Day 8 计划中「重命名仅内存、重启丢失」的遗留问题
+
+### 删除功能回归修复（其他 AI 改动）
+
+其他 AI 在覆盖重命名改动时，将 `DeleteConversationAsync` 改为同步 `void DeleteConversation`，**且丢失了 `_conversationRepository.DeleteAsync(id)` 调用**——删除不再落库，重启后已删会话会复活。已恢复为异步 + DB 删除，与 Day 6-7 设计一致。
+
+### InitializeAsync 构造函数调用问题
+
+旧代码在构造函数中 fire-and-forget 调用 `InitializeAsync()`，存在四个问题：
+
+| 问题 | 说明 |
+|------|------|
+| Fire-and-forget（CS4014） | 构造函数无法 await，Task 被丢弃，异步异常成为未观察异常 |
+| 双重初始化竞态 | `App.OnStartup` 已 await 一次，两路并发交错执行，`Conversations.Count == 0` 判断可能同时通过，**重复创建 "New Chat"** |
+| 违反 DI 惯例 | 构造函数应轻量同步，异步 I/O 使对象构造完 ≠ 可用，不利于测试 |
+| 初始化顺序 | 初始化先于命令创建，`NotifyCanExecuteChanged` 空调用，按钮初始状态可能短暂不正确 |
+
+修复：
+
+- 删除构造函数中的调用，初始化统一由 `App.OnStartup` 在 `mainWindow.Show()` 之前 `await vm.InitializeAsync()` 执行——只跑一次、窗口显示前完成、异常可捕获
+- `InitializeAsync` 入口加 `_isInitialized` 标志重入保护，防止未来重复调用
+- 编译验证：CS4014 警告消除
+
+## 新增文件
+
+| 文件路径 | 作用 |
+|----------|------|
+| `AiChatClient/Services/IDialogService.cs` | 输入对话框服务抽象（VM 与 View 解耦） |
+| `AiChatClient/Services/Impl/DialogService.cs` | 对话框服务实现（弹出 InputDialog，Owner 为主窗口） |
+| `AiChatClient/Views/Dialogs/InputDialog.xaml` | WPF 单行输入对话框（纯 View） |
+| `AiChatClient/Views/Dialogs/InputDialog.xaml.cs` | 对话框 code-behind（仅 View 机制：聚焦/确定/取消） |
+
+## 修改文件
+
+| 文件路径 | 变更内容 |
+|----------|----------|
+| `AiChatClient/MainWindow.xaml` | 重命名按钮 `Click` → `Command` 绑定 |
+| `AiChatClient/MainWindow.xaml.cs` | 移除 `RenameConversation_Click` 及 `Microsoft.VisualBasic` using |
+| `AiChatClient/ViewModels/MainViewModel.cs` | 注入 `IDialogService`；`RenameConversationCommand` 重构 + CanExecute；删除构造函数 `InitializeAsync` 调用；`InitializeAsync` 加重入保护；重复 using 清理 |
+| `AiChatClient/Models/Conversation.cs` | 继承 `ObservableObject`，`Title` 支持变更通知 |
+| `AiChatClient/Services/IConversationService.cs` | `RenameConversation` → `Task<bool> RenameConversationAsync` |
+| `AiChatClient/Services/Impl/ConversationService.cs` | 重命名异步 + 落库；删除恢复 `DeleteConversationAsync` 异步 + 落库 |
+| `AiChatClient/App.xaml.cs` | 注册 `IDialogService → DialogService`（Singleton） |
+| `docs/Sprint 6.md` | 追加本日开发记录 |
+
+## 当前状态
+
+- 重命名全链路（按钮 → 命令 → 对话框 → 服务 → SQLite）符合 MVVM 架构
+- Day 8 计划中「`DeleteConversation` / `RenameConversation` 写入 SQLite」两项已完成
+- 删除功能恢复异步 + 落库，无数据丢失回归
+- 初始化只执行一次（`App.OnStartup` await），无竞态、无未观察异常
+- 构建验证：0 错误，CS4014 / CS0105 警告消除
+
+## 下一步计划
+
+- 建议初始化 Git 仓库建立基线（当前无版本控制，多 AI 协作时文件易被互相覆盖，无法 diff）
+- 补充单元测试（Repository / Service / ViewModel 命令可测试性）
+- 考虑将 Seed 角色扩展为医疗设备相关角色（呼应项目定位）
+
+---

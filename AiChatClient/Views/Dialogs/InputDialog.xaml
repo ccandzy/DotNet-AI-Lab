@@ -1,0 +1,31 @@
+﻿<Window x:Class="AiChatClient.Views.Dialogs.InputDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="杈撳叆"
+        Width="400"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="ToolWindow">
+    <StackPanel Margin="16">
+        <TextBlock x:Name="PromptText"
+                   Margin="0,0,0,8"
+                   TextWrapping="Wrap" />
+        <TextBox x:Name="InputTextBox"
+                 Padding="4"
+                 MaxLength="100" />
+        <StackPanel Margin="0,12,0,0"
+                    HorizontalAlignment="Right"
+                    Orientation="Horizontal">
+            <Button Width="72"
+                    Margin="0,0,8,0"
+                    Click="OkButton_Click"
+                    Content="纭畾"
+                    IsDefault="True" />
+            <Button Width="72"
+                    Content="鍙栨秷"
+                    IsCancel="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

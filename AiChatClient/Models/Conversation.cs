@@ -5,14 +5,24 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using AiChatClient.Settings;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace AiChatClient.Models
 {
-    public class Conversation
+    public class Conversation : ObservableObject
     {
         public Guid Id { get; init; }
 
-        public string Title { get; set; } = "New Chat";
+        private string _title = "New Chat";
+
+        /// <summary>
+        /// 会话标题。变更时通知 UI（如列表项）刷新。
+        /// </summary>
+        public string Title
+        {
+            get => _title;
+            set => SetProperty(ref _title, value);
+        }
 
         public ObservableCollection<ChatMessage> Messages { get; } = new ObservableCollection<ChatMessage>();
 

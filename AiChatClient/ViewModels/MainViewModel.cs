@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Threading.Tasks;
@@ -23,6 +22,7 @@ namespace AiChatClient.ViewModels
         private readonly IConversationService _conversationService;
         private readonly IAIRoleService _aIRoleService;
         private readonly IChatMessageService _chatMessageService;    
+        private readonly IDialogService _dialogService;
 
         private readonly ILogger<MainViewModel> _logger;
         private CancellationTokenSource? _currentRequestCts;
@@ -32,32 +32,30 @@ namespace AiChatClient.ViewModels
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
         private bool _isRoleSwitchEnabled = true;
+        private bool _isInitialized;
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
            IChatMessageService chatMessageService,
-            IAIRoleService aIRoleService, ILogger<MainViewModel> logger)
+            IAIRoleService aIRoleService, IDialogService dialogService, ILogger<MainViewModel> logger)
         {
             _chatService = chatService;
             _conversationService = conversationService;
             _aIRoleService = aIRoleService;
             _chatMessageService = chatMessageService;
+            _dialogService = dialogService;
 
             _logger = logger;
 
 
             Conversations = _conversationService.Conversations;
 
-            // initialize built-in roles
-            InitializeAsync();
-            
-
             // Commands
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
             StopCommand = new RelayCommand(Stop, () => IsBusy);
             ClearCommand = new RelayCommand(ClearMessages, () => Messages.Count > 0);
             NewConversationCommand = new AsyncRelayCommand(NewConversation);
-            DeleteConversationCommand = new RelayCommand(DeleteConversation, () => CurrentConversation is not null);
-            RenameConversationCommand = new RelayCommand<string>(RenameConversation);
+            DeleteConversationCommand = new AsyncRelayCommand(DeleteConversation, () => CurrentConversation is not null);
+            RenameConversationCommand = new AsyncRelayCommand(RenameConversationAsync, () => CurrentConversation is not null);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
@@ -76,6 +74,8 @@ namespace AiChatClient.ViewModels
                     // subscribe to collection changes to control role switching
                     SubscribeMessagesChanged();
                     ClearCommand?.NotifyCanExecuteChanged();
+                    DeleteConversationCommand?.NotifyCanExecuteChanged();
+                    RenameConversationCommand?.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -109,8 +109,19 @@ namespace AiChatClient.ViewModels
             get => _isRoleSwitchEnabled;
             private set => SetProperty(ref _isRoleSwitchEnabled, value);
         }
+        /// <summary>
+        /// 加载 AI 角色与会话数据。重入保护：无论被调用多少次，只执行一次。
+        /// 由 <c>App.OnStartup</c> 在窗口显示前 await 调用，不在构造函数中触发。
+        /// </summary>
         public async Task InitializeAsync()
         {
+            if (_isInitialized)
+            {
+                return;
+            }
+
+            _isInitialized = true;
+
             var roles = await _aIRoleService.GetRolesAsync();
 
             Roles.Clear();
@@ -184,9 +195,9 @@ namespace AiChatClient.ViewModels
 
         public IRelayCommand NewConversationCommand { get; }
 
-        public IRelayCommand DeleteConversationCommand { get; }
+        public IAsyncRelayCommand DeleteConversationCommand { get; }
 
-        public IRelayCommand<string> RenameConversationCommand { get; }
+        public IAsyncRelayCommand RenameConversationCommand { get; }
 
         public string CurrentInput
         {
@@ -265,12 +276,12 @@ namespace AiChatClient.ViewModels
             }
             catch (OperationCanceledException)
             {
-                chatMessage.Content = "��ֹͣ���ɡ�";
+                chatMessage.Content = "��ֹͣ���ɡ�";
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send message to AI service. UserInput: {UserInput}", input);
-                chatMessage.Content = "AI ��������ʧ�ܣ����Ժ����ԡ�";
+                chatMessage.Content = "AI ��������ʧ�ܣ����Ժ����ԡ�";
 
             }
             finally
@@ -332,21 +343,35 @@ namespace AiChatClient.ViewModels
 
             CurrentConversation = result;
         }
-        private void DeleteConversation()
+        private async Task DeleteConversation()
         {
             if (CurrentConversation is null) return;
             var id = CurrentConversation.Id;
-            _conversationService.DeleteConversation(id);
+            await _conversationService.DeleteConversationAsync(id);
             // pick another conversation if any
             CurrentConversation = Conversations.FirstOrDefault();
         }
 
-        private void RenameConversation(string? newTitle)
+        /// <summary>
+        /// 重命名当前会话：通过对话框服务获取新名称，再交给服务层处理。
+        /// </summary>
+        private async Task RenameConversationAsync()
         {
-            if (CurrentConversation is null || string.IsNullOrWhiteSpace(newTitle)) return;
-            _conversationService.RenameConversation(CurrentConversation.Id, newTitle.Trim());
-            // update binding
-            OnPropertyChanged(nameof(Conversations));
+            if (CurrentConversation is null) return;
+
+            var newTitle = _dialogService.ShowInputDialog(
+                "重命名会话",
+                "请输入新的会话名称:",
+                CurrentConversation.Title);
+
+            if (string.IsNullOrWhiteSpace(newTitle)) return;
+
+            var trimmedTitle = newTitle.Trim();
+
+            // 名称未变化时无需处理
+            if (trimmedTitle == CurrentConversation.Title) return;
+
+            await _conversationService.RenameConversationAsync(CurrentConversation.Id, trimmedTitle);
         }
     }
 }

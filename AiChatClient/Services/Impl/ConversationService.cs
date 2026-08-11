@@ -22,7 +22,7 @@ namespace AiChatClient.Services.Impl
 
 
         /// <summary>
-        /// ´ÓÊı¾İ¿â¼ÓÔØÀúÊ·»á»°
+        /// ï¿½ï¿½ï¿½ï¿½ï¿½İ¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê·ï¿½á»°
         /// </summary>
         public async Task InitializeAsync()
         {
@@ -57,19 +57,21 @@ namespace AiChatClient.Services.Impl
         }
 
 
-        public void DeleteConversation(Guid id)
+        public async Task DeleteConversationAsync(Guid id)
         {
-            var exist =
-                Conversations.FirstOrDefault(c => c.Id == id);
+            await _conversationRepository.DeleteAsync(id);
 
-            if (exist is not null)
+            var exist =
+                Conversations.FirstOrDefault(x => x.Id == id);
+
+            if (exist != null)
             {
                 Conversations.Remove(exist);
             }
         }
 
 
-        public bool RenameConversation(Guid id, string newTitle)
+        public async Task<bool> RenameConversationAsync(Guid id, string newTitle)
         {
             var exist =
                 Conversations.FirstOrDefault(c => c.Id == id);
@@ -78,9 +80,19 @@ namespace AiChatClient.Services.Impl
                 return false;
 
 
+            // æŒä¹…åŒ–åˆ°æ•°æ®åº“
+            var entity =
+                await _conversationRepository.GetByIdAsync(id);
+
+            if (entity is null)
+                return false;
+
+            ConversationMapper.UpdateEntity(exist, entity);
+
+            await _conversationRepository.UpdateAsync(entity);
+
             exist.Title = newTitle ?? string.Empty;
             exist.UpdatedTime = DateTime.Now;
-
             return true;
         }
     }

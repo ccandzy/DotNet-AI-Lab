@@ -1,6 +1,4 @@
-﻿using System.Text;
-using Microsoft.VisualBasic;
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Input;
 using System.Collections.Specialized;
 using AiChatClient.ViewModels;
@@ -79,22 +77,6 @@ namespace AiChatClient
                 if (DataContext is MainViewModel vm && vm.SendCommand.CanExecute(null))
                 {
                     vm.SendCommand.Execute(null);
-                }
-            }
-        }
-
-        private void RenameConversation_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is not MainViewModel vm || vm.CurrentConversation is null) return;
-
-            var currentTitle = vm.CurrentConversation.Title ?? string.Empty;
-            var input = Interaction.InputBox("重命名会话:", "重命名", currentTitle);
-            if (!string.IsNullOrWhiteSpace(input))
-            {
-                // call VM rename command
-                if (vm.RenameConversationCommand.CanExecute(input))
-                {
-                    vm.RenameConversationCommand.Execute(input);
                 }
             }
         }

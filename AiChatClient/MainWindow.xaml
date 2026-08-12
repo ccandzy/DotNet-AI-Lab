@@ -107,7 +107,7 @@
                                 Orientation="Horizontal">
                         <Button Width="80"
                                 Margin="0,0,8,0"
-                                Click="RenameConversation_Click"
+                                Command="{Binding RenameConversationCommand}"
                                 Content="重命名" />
                         <Button Width="80"
                                 Command="{Binding DeleteConversationCommand}"

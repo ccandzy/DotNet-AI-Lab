@@ -62,6 +62,8 @@ namespace AiChatClient
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
+            // Dialog service
+            services.AddSingleton<IDialogService, DialogService>();
             services.AddScoped<MainViewModel>();
             services.AddScoped<MainWindow>();
 

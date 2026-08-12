@@ -34,4 +34,24 @@ public class ChatMessageRepository : IChatMessageRepository
             .OrderBy(x => x.Timestamp)
             .ToListAsync();
     }
+
+
+    /// <summary>
+    /// 删除指定会话下的全部聊天消息，并将变更持久化到数据库。
+    /// </summary>
+    public async Task DeleteByConversationIdAsync(Guid conversationId)
+    {
+        var messages = await _context.ChatMessages
+            .Where(x => x.ConversationId == conversationId)
+            .ToListAsync();
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        _context.ChatMessages.RemoveRange(messages);
+
+        await _context.SaveChangesAsync();
+    }
 }

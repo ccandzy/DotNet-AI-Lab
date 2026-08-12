@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Threading.Tasks;
@@ -23,6 +22,7 @@ namespace AiChatClient.ViewModels
         private readonly IConversationService _conversationService;
         private readonly IAIRoleService _aIRoleService;
         private readonly IChatMessageService _chatMessageService;    
+        private readonly IDialogService _dialogService;
 
         private readonly ILogger<MainViewModel> _logger;
         private CancellationTokenSource? _currentRequestCts;
@@ -32,32 +32,31 @@ namespace AiChatClient.ViewModels
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
         private bool _isRoleSwitchEnabled = true;
+        private bool _isInitialized;
+        private readonly SemaphoreSlim _roleUpdateLock = new(1, 1);
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
            IChatMessageService chatMessageService,
-            IAIRoleService aIRoleService, ILogger<MainViewModel> logger)
+            IAIRoleService aIRoleService, IDialogService dialogService, ILogger<MainViewModel> logger)
         {
             _chatService = chatService;
             _conversationService = conversationService;
             _aIRoleService = aIRoleService;
             _chatMessageService = chatMessageService;
+            _dialogService = dialogService;
 
             _logger = logger;
 
 
             Conversations = _conversationService.Conversations;
 
-            // initialize built-in roles
-            InitializeAsync();
-            
-
             // Commands
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
             StopCommand = new RelayCommand(Stop, () => IsBusy);
-            ClearCommand = new RelayCommand(ClearMessages, () => Messages.Count > 0);
+            ClearCommand = new AsyncRelayCommand(ClearMessagesAsync, () => !IsBusy && Messages.Count > 0);
             NewConversationCommand = new AsyncRelayCommand(NewConversation);
-            DeleteConversationCommand = new RelayCommand(DeleteConversation, () => CurrentConversation is not null);
-            RenameConversationCommand = new RelayCommand<string>(RenameConversation);
+            DeleteConversationCommand = new AsyncRelayCommand(DeleteConversation, () => CurrentConversation is not null);
+            RenameConversationCommand = new AsyncRelayCommand(RenameConversationAsync, () => CurrentConversation is not null);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
@@ -71,11 +70,13 @@ namespace AiChatClient.ViewModels
                 {
                     // notify that Messages changed
                     OnPropertyChanged(nameof(Messages));
-                    // when conversation changes, update selected role to match
-                    SelectedRole = CurrentConversation?.Role ?? Roles.FirstOrDefault();
+                    // 切换会话时同步显示其角色，不触发用户手动切换角色的限制。
+                    SynchronizeSelectedRole();
                     // subscribe to collection changes to control role switching
                     SubscribeMessagesChanged();
                     ClearCommand?.NotifyCanExecuteChanged();
+                    DeleteConversationCommand?.NotifyCanExecuteChanged();
+                    RenameConversationCommand?.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -87,6 +88,11 @@ namespace AiChatClient.ViewModels
             get => _selectedRole;
             set
             {
+                if (value is null)
+                {
+                    return;
+                }
+
                 // prevent switching when conversation already started
                 if (CurrentConversation is not null && CurrentConversation.Messages.Count > 0)
                 {
@@ -96,11 +102,82 @@ namespace AiChatClient.ViewModels
 
                 if (SetProperty(ref _selectedRole, value))
                 {
-                    if (CurrentConversation is not null)
+                    var conversation = CurrentConversation;
+
+                    if (conversation is not null && conversation.Role?.Id != value.Id)
                     {
-                        CurrentConversation.Role = value;
+                        var previousRole = conversation.Role;
+                        conversation.Role = value;
+                        _ = PersistConversationRoleAsync(
+                            conversation,
+                            previousRole,
+                            value.Id);
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// 按角色 ID 从下拉列表数据源中选取角色，确保切换会话时能正确显示其角色。
+        /// 此同步不经过 <see cref="SelectedRole"/> 的 setter，避免被“已有消息时禁止手动切换”的规则拦截。
+        /// </summary>
+        private void SynchronizeSelectedRole()
+        {
+            var currentRoleId = CurrentConversation?.Role?.Id;
+            var selectedRole = currentRoleId is null
+                ? Roles.FirstOrDefault()
+                : Roles.FirstOrDefault(role => role.Id == currentRoleId);
+
+            if (CurrentConversation is not null && selectedRole is not null)
+            {
+                CurrentConversation.Role = selectedRole;
+            }
+
+            SetProperty(ref _selectedRole, selectedRole, nameof(SelectedRole));
+        }
+
+        /// <summary>
+        /// 将用户为尚未开始的会话选择的新角色写入数据库。
+        /// 通过互斥锁避免快速连续切换时并发使用同一个数据库上下文。
+        /// </summary>
+        private async Task PersistConversationRoleAsync(
+            Conversation conversation,
+            AIRole? previousRole,
+            Guid roleId)
+        {
+            await _roleUpdateLock.WaitAsync();
+
+            try
+            {
+                var updated = await _conversationService
+                    .UpdateConversationRoleAsync(conversation.Id, roleId);
+
+                if (!updated)
+                {
+                    throw new InvalidOperationException(
+                        $"Conversation '{conversation.Id}' was not found while updating its role.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to persist role change for conversation {ConversationId}.",
+                    conversation.Id);
+
+                if (conversation.Role?.Id == roleId)
+                {
+                    conversation.Role = previousRole;
+                }
+
+                if (ReferenceEquals(CurrentConversation, conversation))
+                {
+                    SynchronizeSelectedRole();
+                }
+            }
+            finally
+            {
+                _roleUpdateLock.Release();
             }
         }
 
@@ -109,8 +186,19 @@ namespace AiChatClient.ViewModels
             get => _isRoleSwitchEnabled;
             private set => SetProperty(ref _isRoleSwitchEnabled, value);
         }
+        /// <summary>
+        /// 加载 AI 角色与会话数据。重入保护：无论被调用多少次，只执行一次。
+        /// 由 <c>App.OnStartup</c> 在窗口显示前 await 调用，不在构造函数中触发。
+        /// </summary>
         public async Task InitializeAsync()
         {
+            if (_isInitialized)
+            {
+                return;
+            }
+
+            _isInitialized = true;
+
             var roles = await _aIRoleService.GetRolesAsync();
 
             Roles.Clear();
@@ -135,9 +223,11 @@ namespace AiChatClient.ViewModels
                     Model = string.Empty,
                     Role = SelectedRole
                 });
-                // associate default role
-                c.Role = SelectedRole;
                 CurrentConversation = c;
+            }
+            else
+            {
+                CurrentConversation = Conversations.FirstOrDefault();
             }
         }
         private void SubscribeMessagesChanged()
@@ -184,9 +274,9 @@ namespace AiChatClient.ViewModels
 
         public IRelayCommand NewConversationCommand { get; }
 
-        public IRelayCommand DeleteConversationCommand { get; }
+        public IAsyncRelayCommand DeleteConversationCommand { get; }
 
-        public IRelayCommand<string> RenameConversationCommand { get; }
+        public IAsyncRelayCommand RenameConversationCommand { get; }
 
         public string CurrentInput
         {
@@ -209,6 +299,7 @@ namespace AiChatClient.ViewModels
                 {
                     SendCommand.NotifyCanExecuteChanged();
                     StopCommand.NotifyCanExecuteChanged();
+                    ClearCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -217,7 +308,7 @@ namespace AiChatClient.ViewModels
 
         public IRelayCommand StopCommand { get; }
 
-        public IRelayCommand ClearCommand { get; }
+        public IAsyncRelayCommand ClearCommand { get; }
 
         private bool CanSend()
         {
@@ -265,12 +356,12 @@ namespace AiChatClient.ViewModels
             }
             catch (OperationCanceledException)
             {
-                chatMessage.Content = "��ֹͣ���ɡ�";
+                chatMessage.Content = "已停止生成。";
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send message to AI service. UserInput: {UserInput}", input);
-                chatMessage.Content = "AI ��������ʧ�ܣ����Ժ����ԡ�";
+                chatMessage.Content = "AI 响应生成失败，请稍后重试。";
 
             }
             finally
@@ -286,9 +377,22 @@ namespace AiChatClient.ViewModels
             _currentRequestCts?.Cancel();
         }
 
-        private void ClearMessages()
+        /// <summary>
+        /// 删除当前会话的全部消息，并在数据库删除成功后同步清空页面消息列表。
+        /// </summary>
+        private async Task ClearMessagesAsync()
         {
-            CurrentConversation?.Messages.Clear();
+            var conversation = CurrentConversation;
+
+            if (conversation is null)
+            {
+                return;
+            }
+
+            await _chatMessageService
+                .DeleteMessagesByConversationIdAsync(conversation.Id);
+
+            conversation.Messages.Clear();
             ClearCommand.NotifyCanExecuteChanged();
         }
 
@@ -332,21 +436,35 @@ namespace AiChatClient.ViewModels
 
             CurrentConversation = result;
         }
-        private void DeleteConversation()
+        private async Task DeleteConversation()
         {
             if (CurrentConversation is null) return;
             var id = CurrentConversation.Id;
-            _conversationService.DeleteConversation(id);
+            await _conversationService.DeleteConversationAsync(id);
             // pick another conversation if any
             CurrentConversation = Conversations.FirstOrDefault();
         }
 
-        private void RenameConversation(string? newTitle)
+        /// <summary>
+        /// 重命名当前会话：通过对话框服务获取新名称，再交给服务层处理。
+        /// </summary>
+        private async Task RenameConversationAsync()
         {
-            if (CurrentConversation is null || string.IsNullOrWhiteSpace(newTitle)) return;
-            _conversationService.RenameConversation(CurrentConversation.Id, newTitle.Trim());
-            // update binding
-            OnPropertyChanged(nameof(Conversations));
+            if (CurrentConversation is null) return;
+
+            var newTitle = _dialogService.ShowInputDialog(
+                "重命名会话",
+                "请输入新的会话名称:",
+                CurrentConversation.Title);
+
+            if (string.IsNullOrWhiteSpace(newTitle)) return;
+
+            var trimmedTitle = newTitle.Trim();
+
+            // 名称未变化时无需处理
+            if (trimmedTitle == CurrentConversation.Title) return;
+
+            await _conversationService.RenameConversationAsync(CurrentConversation.Id, trimmedTitle);
         }
     }
 }

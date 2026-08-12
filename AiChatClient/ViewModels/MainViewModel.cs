@@ -33,7 +33,8 @@ namespace AiChatClient.ViewModels
         private AIRole? _selectedRole;
         private bool _isRoleSwitchEnabled = true;
         private bool _isInitialized;
-        private readonly SemaphoreSlim _roleUpdateLock = new(1, 1);
+        // 仅用于保持用户快速连续选择角色时的写入顺序，与 DbContext 线程安全无关。
+        private readonly SemaphoreSlim _rolePersistenceLock = new(1, 1);
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
            IChatMessageService chatMessageService,
@@ -145,7 +146,7 @@ namespace AiChatClient.ViewModels
             AIRole? previousRole,
             Guid roleId)
         {
-            await _roleUpdateLock.WaitAsync();
+            await _rolePersistenceLock.WaitAsync();
 
             try
             {
@@ -177,7 +178,7 @@ namespace AiChatClient.ViewModels
             }
             finally
             {
-                _roleUpdateLock.Release();
+                _rolePersistenceLock.Release();
             }
         }
 

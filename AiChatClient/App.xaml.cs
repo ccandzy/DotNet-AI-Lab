@@ -44,7 +44,8 @@ namespace AiChatClient
                 builder.SetMinimumLevel(LogLevel.Information);
             });
 
-            services.AddDbContext<AppDbContext>((x) =>
+            // 为每次数据库操作创建短生命周期 DbContext，避免整个 WPF 应用共享同一实例。
+            services.AddDbContextFactory<AppDbContext>((x) =>
             {
                 x.UseSqlite(DataBaseConnect);
             });

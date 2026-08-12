@@ -13,15 +13,15 @@ namespace Repositories.Impl
     /// </summary>
     public class ConversationRepository : IConversationRepository
     {
-        private readonly AppDbContext _context;
+        private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
         /// <summary>
         /// 构造 <see cref="ConversationRepository"/>。
         /// </summary>
         /// <param name="context">应用数据库上下文，通过 DI 注入。</param>
-        public ConversationRepository(AppDbContext context)
+        public ConversationRepository(IDbContextFactory<AppDbContext> contextFactory)
         {
-            _context = context;
+            _contextFactory = contextFactory;
         }
 
         #region 查询
@@ -33,7 +33,10 @@ namespace Repositories.Impl
         /// <returns>对话实体列表，若无数据则返回空列表。</returns>
         public async Task<List<ConversationEntity>> GetAllAsync()
         {
-            return await _context.Conversations
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            return await context.Conversations
+                .AsNoTracking()
                 .Include(x => x.AIRole)
                 .Include(x => x.Messages)
                 .OrderByDescending(x => x.UpdatedTime)
@@ -48,9 +51,10 @@ namespace Repositories.Impl
         /// <returns>若存在则返回对应 <see cref="ConversationEntity"/>，否则返回 <c>null</c>。</returns>
         public async Task<ConversationEntity?> GetByIdAsync(Guid id)
         {
-            return await _context.Conversations
-                .Include(x => x.AIRole)
-                .Include(x => x.Messages)
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            return await context.Conversations
+                .AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == id);
         }
 
@@ -66,8 +70,10 @@ namespace Repositories.Impl
         /// <returns>表示异步写操作的 <see cref="Task"/>。</returns>
         public async Task AddAsync(ConversationEntity entity)
         {
-            await _context.Conversations.AddAsync(entity);
-            await _context.SaveChangesAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            await context.Conversations.AddAsync(entity);
+            await context.SaveChangesAsync();
         }
 
         /// <summary>
@@ -80,8 +86,10 @@ namespace Repositories.Impl
         public async Task UpdateAsync(ConversationEntity entity)
         {
             // 先 Attach 确保实体被上下文追踪，再标记为 Modified 触发全属性更新
-            _context.Entry(entity).State = EntityState.Modified;
-            await _context.SaveChangesAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            context.Entry(entity).State = EntityState.Modified;
+            await context.SaveChangesAsync();
         }
 
         /// <summary>
@@ -93,17 +101,17 @@ namespace Repositories.Impl
         /// <exception cref="KeyNotFoundException">当指定 ID 的记录不存在时。</exception>
         public async Task DeleteAsync(Guid id)
         {
-            var entity = await _context.Conversations
-                .FirstOrDefaultAsync(x => x.Id == id);
+            await using var context = await _contextFactory.CreateDbContextAsync();
 
-            if (entity is null)
+            var affectedRows = await context.Conversations
+                .Where(x => x.Id == id)
+                .ExecuteDeleteAsync();
+
+            if (affectedRows == 0)
             {
                 throw new KeyNotFoundException(
                     $"Conversation with Id '{id}' was not found and cannot be deleted.");
             }
-
-            _context.Conversations.Remove(entity);
-            await _context.SaveChangesAsync();
         }
 
         #endregion

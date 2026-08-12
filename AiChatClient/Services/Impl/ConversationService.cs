@@ -95,5 +95,36 @@ namespace AiChatClient.Services.Impl
             exist.UpdatedTime = DateTime.Now;
             return true;
         }
+        /// <summary>
+        /// 更新会话关联的 AI 角色，并持久化到数据库。
+        /// </summary>
+        public async Task<bool> UpdateConversationRoleAsync(
+            Guid conversationId,
+            Guid roleId)
+        {
+            var conversation = Conversations
+                .FirstOrDefault(c => c.Id == conversationId);
+
+            if (conversation is null)
+            {
+                return false;
+            }
+
+            var entity = await _conversationRepository
+                .GetByIdAsync(conversationId);
+
+            if (entity is null)
+            {
+                return false;
+            }
+
+            entity.AIRoleId = roleId;
+            entity.UpdatedTime = DateTime.Now;
+
+            await _conversationRepository.UpdateAsync(entity);
+
+            conversation.UpdatedTime = entity.UpdatedTime;
+            return true;
+        }
     }
 }

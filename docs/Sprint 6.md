@@ -32,6 +32,57 @@ AiChatClient
 
 ---
 
+# Sprint 6 Day 10
+
+## 完成功能
+
+- 为聊天消息仓储与服务层新增“按会话删除全部消息”能力。
+- 主页面“清空”按钮改为异步操作：先删除 SQLite 数据，再清空当前会话的页面消息，避免重启后消息重新出现。
+- 修复切换已有消息的会话时，角色下拉框仍显示上一会话角色的问题。
+- 角色同步按角色 ID 从 `Roles` 集合获取同一实例，不再依赖不同映射对象的引用相等。
+- 空会话手动修改角色后，将新的 `AIRoleId` 写入 SQLite；保存失败时恢复原角色并记录错误。
+- 修复停止生成与生成失败提示文本的乱码。
+
+## 技术实现
+
+### 消息删除
+
+数据流：
+
+```
+清空按钮
+  -> ClearMessagesAsync
+  -> IChatMessageService.DeleteMessagesByConversationIdAsync
+  -> IChatMessageRepository.DeleteByConversationIdAsync
+  -> ChatMessages.RemoveRange + SaveChangesAsync
+  -> 清空当前 Conversation.Messages
+```
+
+### 会话角色同步与持久化
+
+- `CurrentConversation` 变更时调用 `SynchronizeSelectedRole`，直接更新 `_selectedRole` 并通知 UI，不经过用户手动选择时使用的 `SelectedRole` setter。
+- `SelectedRole` 仍限制已有消息的会话不能手动更换角色，保证既有系统提示词与角色配置一致。
+- `UpdateConversationRoleAsync` 更新会话的 `AIRoleId` 与 `UpdatedTime`，使空会话的角色选择可在重启后恢复。
+- 使用 `SemaphoreSlim` 串行化快速连续的角色保存操作，避免共享 `DbContext` 的并发访问。
+
+## 修改文件
+
+| 文件路径 | 变更内容 |
+|----------|----------|
+| `AiChatClient/Repositories/IChatMessageRepository.cs` | 新增按会话删除消息接口 |
+| `AiChatClient/Repositories/Impl/ChatMessageRepository.cs` | 实现消息批量删除与持久化 |
+| `AiChatClient/Services/IChatMessageService.cs` | 新增消息删除服务接口 |
+| `AiChatClient/Services/Impl/ChatMessageService.cs` | 转发消息删除请求到仓储层 |
+| `AiChatClient/Services/IConversationService.cs` | 新增会话角色更新接口 |
+| `AiChatClient/Services/Impl/ConversationService.cs` | 实现会话角色持久化 |
+| `AiChatClient/ViewModels/MainViewModel.cs` | 对接清空按钮、角色同步、角色保存与提示文案修复 |
+
+## 验证
+
+- 执行 `dotnet build AiChatClient.sln --no-restore`：构建成功，0 个错误。
+
+---
+
 # Sprint 6 Day 3
 
 ## 完成功能

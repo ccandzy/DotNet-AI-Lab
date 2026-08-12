@@ -51,4 +51,13 @@ public class ChatMessageService
             .Select(ChatMessageMapper.ToModel)
             .ToList();
     }
+
+
+    /// <summary>
+    /// 删除指定会话下的全部聊天消息。
+    /// </summary>
+    public Task DeleteMessagesByConversationIdAsync(Guid conversationId)
+    {
+        return _repository.DeleteByConversationIdAsync(conversationId);
+    }
 }

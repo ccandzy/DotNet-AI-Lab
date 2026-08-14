@@ -6,17 +6,37 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Helpers;
 using AiChatClient.Models;
+using Microsoft.Extensions.Options;
 
 namespace AiChatClient.Services.Impl
 {
     public class OllamaChatProvider : IChatProvider
     {
-        private string Url => App.Config["Ollama:BaseUrl"]!;
+        private const string ProviderName = "Ollama";
+        private readonly IOptionsMonitor<AiOptions> _options;
 
-        public string Model => App.Config["Ollama:Model"]!;
+        public OllamaChatProvider(IOptionsMonitor<AiOptions> options)
+        {
+            _options = options;
+        }
+
+        private AIProviderOptions Provider => _options.CurrentValue.Providers
+            .FirstOrDefault(provider =>
+                string.Equals(provider.Name, ProviderName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"AI provider '{ProviderName}' is not configured.");
+
+        private string Url => Provider.BaseUrl.TrimEnd('/');
+
+        public string Model => Provider.Models
+            .FirstOrDefault(model => model.IsEnabled && !string.IsNullOrWhiteSpace(model.ModelId))
+            ?.ModelId
+            ?? throw new InvalidOperationException(
+                $"No enabled model is configured for AI provider '{ProviderName}'.");
 
         public string ApiChatUrl => Url + "/api/chat";
 

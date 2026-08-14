@@ -1,5 +1,6 @@
 using AiChatClient.Entities;
 using AiChatClient.Models;
+using Models;
 
 namespace AiChatClient.Mappers;
 

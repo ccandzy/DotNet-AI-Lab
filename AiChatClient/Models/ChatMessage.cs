@@ -1,13 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Models;
 
 namespace AiChatClient.Models
 {
-    public enum ChatRole
-    {
-        User,
-        Assistant,
-        System
-    }
+
 
     public partial class ChatMessage:ObservableObject
     {

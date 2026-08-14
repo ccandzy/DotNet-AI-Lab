@@ -3,6 +3,7 @@ using System.Data;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
+using AiChatClient.Config;
 using AiChatClient.Data;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
@@ -43,6 +44,9 @@ namespace AiChatClient
                 builder.AddDebug();
                 builder.SetMinimumLevel(LogLevel.Information);
             });
+
+            services.Configure<AiOptions>(
+                Config.GetSection("AI"));
 
             // 为每次数据库操作创建短生命周期 DbContext，避免整个 WPF 应用共享同一实例。
             services.AddDbContextFactory<AppDbContext>((x) =>

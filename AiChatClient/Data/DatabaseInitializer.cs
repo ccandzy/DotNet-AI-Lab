@@ -5,31 +5,37 @@ namespace AiChatClient.Data;
 
 public class DatabaseInitializer
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
 
     public DatabaseInitializer(
-        AppDbContext context)
+        IDbContextFactory<AppDbContext> contextFactory)
     {
-        _context = context;
+        _contextFactory = contextFactory;
     }
 
 
     public async Task InitializeAsync()
     {
+        await using var context = await _contextFactory
+            .CreateDbContextAsync();
+
         // 1. 自动创建/更新数据库
-        await _context.Database.MigrateAsync();
+        await context.Database.MigrateAsync();
 
 
         // 2. 初始化默认角色
-        await SeedRolesAsync();
+        await SeedRolesAsync(context);
     }
 
 
-    private async Task SeedRolesAsync()
+    /// <summary>
+    /// 在启动时为空数据库写入默认角色。
+    /// </summary>
+    private static async Task SeedRolesAsync(AppDbContext context)
     {
         // 已经存在角色，不重复添加
-        if (await _context.AIRoles.AnyAsync())
+        if (await context.AIRoles.AnyAsync())
         {
             return;
         }
@@ -139,8 +145,8 @@ public class DatabaseInitializer
         };
 
 
-        await _context.AIRoles.AddRangeAsync(roles);
+        await context.AIRoles.AddRangeAsync(roles);
 
-        await _context.SaveChangesAsync();
+        await context.SaveChangesAsync();
     }
 }

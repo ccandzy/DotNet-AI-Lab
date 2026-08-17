@@ -3,12 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using AiChatClient.Models;
+using AiChatClient.Dtos;
 
 namespace AiChatClient.Services
 {
     public interface IChatService
     {
-        IAsyncEnumerable<string> SendStreamingAsync(IReadOnlyList<ChatMessage> messages,CancellationToken cancellationToken = default);
+        /// <summary>
+        /// 发送一次统一格式的 AI 请求，并以流式方式返回生成内容。
+        /// </summary>
+        IAsyncEnumerable<string> SendStreamingAsync(
+            ChatRequest request,
+            CancellationToken cancellationToken = default);
     }
 }

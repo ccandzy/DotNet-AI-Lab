@@ -3,6 +3,7 @@ using System.Data;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
+using AiChatClient.Config;
 using AiChatClient.Data;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
@@ -44,7 +45,11 @@ namespace AiChatClient
                 builder.SetMinimumLevel(LogLevel.Information);
             });
 
-            services.AddDbContext<AppDbContext>((x) =>
+            services.Configure<AiOptions>(
+                Config.GetSection("AI"));
+
+            // 为每次数据库操作创建短生命周期 DbContext，避免整个 WPF 应用共享同一实例。
+            services.AddDbContextFactory<AppDbContext>((x) =>
             {
                 x.UseSqlite(DataBaseConnect);
             });
@@ -60,6 +65,8 @@ namespace AiChatClient
 
             //services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
+            
+            services.AddSingleton<IChatProviderResolver, ChatProviderResolver>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             // Dialog service

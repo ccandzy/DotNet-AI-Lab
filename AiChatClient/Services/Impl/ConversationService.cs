@@ -73,10 +73,10 @@ namespace AiChatClient.Services.Impl
 
         public async Task<bool> RenameConversationAsync(Guid id, string newTitle)
         {
-            var exist =
+            var conversation =
                 Conversations.FirstOrDefault(c => c.Id == id);
 
-            if (exist is null)
+            if (conversation is null)
                 return false;
 
 
@@ -87,12 +87,14 @@ namespace AiChatClient.Services.Impl
             if (entity is null)
                 return false;
 
-            ConversationMapper.UpdateEntity(exist, entity);
+            // 先保存数据库实体；保存成功后再更新内存模型，避免界面显示未持久化的名称。
+            entity.Title = newTitle ?? string.Empty;
+            entity.UpdatedTime = DateTime.Now;
 
             await _conversationRepository.UpdateAsync(entity);
 
-            exist.Title = newTitle ?? string.Empty;
-            exist.UpdatedTime = DateTime.Now;
+            conversation.Title = entity.Title;
+            conversation.UpdatedTime = entity.UpdatedTime;
             return true;
         }
         /// <summary>

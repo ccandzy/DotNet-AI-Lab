@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Threading.Tasks;
+using AiChatClient.Config;
+using AiChatClient.Dtos;
 using AiChatClient.Models;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
@@ -9,6 +11,8 @@ using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Models;
 using Repositories;
 using Repositories.Impl;
 using Services;
@@ -23,6 +27,12 @@ namespace AiChatClient.ViewModels
         private readonly IAIRoleService _aIRoleService;
         private readonly IChatMessageService _chatMessageService;    
         private readonly IDialogService _dialogService;
+        private readonly IOptionsMonitor<AiOptions> _aiOptions;
+
+        private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
+        private readonly ObservableCollection<AIModelOptions> _aiModels = new();
+        private AIProviderOptions? _selectedAIProvider;
+        private AIModelOptions? _selectedAIModel;
 
         private readonly ILogger<MainViewModel> _logger;
         private CancellationTokenSource? _currentRequestCts;
@@ -33,17 +43,20 @@ namespace AiChatClient.ViewModels
         private AIRole? _selectedRole;
         private bool _isRoleSwitchEnabled = true;
         private bool _isInitialized;
-        private readonly SemaphoreSlim _roleUpdateLock = new(1, 1);
+        // 仅用于保持用户快速连续选择角色时的写入顺序，与 DbContext 线程安全无关。
+        private readonly SemaphoreSlim _rolePersistenceLock = new(1, 1);
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
            IChatMessageService chatMessageService,
-            IAIRoleService aIRoleService, IDialogService dialogService, ILogger<MainViewModel> logger)
+            IAIRoleService aIRoleService, IDialogService dialogService,
+            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions)
         {
             _chatService = chatService;
             _conversationService = conversationService;
             _aIRoleService = aIRoleService;
             _chatMessageService = chatMessageService;
             _dialogService = dialogService;
+            _aiOptions = aiOptions;
 
             _logger = logger;
 
@@ -60,6 +73,52 @@ namespace AiChatClient.ViewModels
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
+
+        /// <summary>
+        /// 从 appsettings.json 的 AI:Providers 节点加载的服务厂家列表。
+        /// </summary>
+        public ObservableCollection<AIProviderOptions> AIProviders => _aiProviders;
+
+        /// <summary>
+        /// 当前选中厂家下启用的模型列表。
+        /// </summary>
+        public ObservableCollection<AIModelOptions> AIModels => _aiModels;
+
+        /// <summary>
+        /// UI 上当前选中的 AI 厂家。切换厂家时刷新模型下拉框。
+        /// </summary>
+        public AIProviderOptions? SelectedAIProvider
+        {
+            get => _selectedAIProvider;
+            set
+            {
+                if (!SetProperty(ref _selectedAIProvider, value))
+                {
+                    return;
+                }
+
+                AIModels.Clear();
+
+                if (value is not null)
+                {
+                    foreach (var model in value.Models.Where(model => model.IsEnabled))
+                    {
+                        AIModels.Add(model);
+                    }
+                }
+
+                SelectedAIModel = AIModels.FirstOrDefault();
+            }
+        }
+
+        /// <summary>
+        /// UI 上当前选中的 AI 模型；本阶段仅用于展示配置，不改变现有发送链路。
+        /// </summary>
+        public AIModelOptions? SelectedAIModel
+        {
+            get => _selectedAIModel;
+            set => SetProperty(ref _selectedAIModel, value);
+        }
 
         public Conversation? CurrentConversation
         {
@@ -145,7 +204,7 @@ namespace AiChatClient.ViewModels
             AIRole? previousRole,
             Guid roleId)
         {
-            await _roleUpdateLock.WaitAsync();
+            await _rolePersistenceLock.WaitAsync();
 
             try
             {
@@ -177,7 +236,7 @@ namespace AiChatClient.ViewModels
             }
             finally
             {
-                _roleUpdateLock.Release();
+                _rolePersistenceLock.Release();
             }
         }
 
@@ -198,6 +257,8 @@ namespace AiChatClient.ViewModels
             }
 
             _isInitialized = true;
+
+            LoadAIConfiguration();
 
             var roles = await _aIRoleService.GetRolesAsync();
 
@@ -229,6 +290,21 @@ namespace AiChatClient.ViewModels
             {
                 CurrentConversation = Conversations.FirstOrDefault();
             }
+        }
+
+        /// <summary>
+        /// 将当前配置快照复制到 UI 的厂家和模型下拉框数据源。
+        /// </summary>
+        private void LoadAIConfiguration()
+        {
+            AIProviders.Clear();
+
+            foreach (var provider in _aiOptions.CurrentValue.Providers)
+            {
+                AIProviders.Add(provider);
+            }
+
+            SelectedAIProvider = AIProviders.FirstOrDefault();
         }
         private void SubscribeMessagesChanged()
         {
@@ -344,7 +420,18 @@ namespace AiChatClient.ViewModels
             {
                 
                 Messages.Add(chatMessage);
-                await foreach (var line in _chatService.SendStreamingAsync(Messages, _currentRequestCts.Token))
+                var roleModel = CurrentConversation?.Role?.Model;
+                var request = new ChatRequest
+                {
+                    Messages = Messages,
+                    Provider = SelectedAIProvider?.Name ?? string.Empty,
+                    Model = string.IsNullOrWhiteSpace(roleModel)
+                        ? SelectedAIModel?.ModelId ?? string.Empty
+                        : roleModel,
+                    Temperature = CurrentConversation?.Role?.Temperature ?? 0
+                };
+
+                await foreach (var line in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
                 {
                     chatMessage.Content += line;
                 }

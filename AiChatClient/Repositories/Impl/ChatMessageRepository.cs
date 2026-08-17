@@ -7,29 +7,36 @@ namespace Repositories.Impl;
 
 public class ChatMessageRepository : IChatMessageRepository
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
 
     public ChatMessageRepository(
-        AppDbContext context)
+        IDbContextFactory<AppDbContext> contextFactory)
     {
-        _context = context;
+        _contextFactory = contextFactory;
     }
 
 
     public async Task AddAsync(
         ChatMessageEntity entity)
     {
-        await _context.ChatMessages.AddAsync(entity);
+        await using var context = await _contextFactory
+            .CreateDbContextAsync();
 
-        await _context.SaveChangesAsync();
+        await context.ChatMessages.AddAsync(entity);
+
+        await context.SaveChangesAsync();
     }
 
 
     public async Task<List<ChatMessageEntity>>
         GetByConversationIdAsync(Guid conversationId)
     {
-        return await _context.ChatMessages
+        await using var context = await _contextFactory
+            .CreateDbContextAsync();
+
+        return await context.ChatMessages
+            .AsNoTracking()
             .Where(x => x.ConversationId == conversationId)
             .OrderBy(x => x.Timestamp)
             .ToListAsync();
@@ -41,17 +48,11 @@ public class ChatMessageRepository : IChatMessageRepository
     /// </summary>
     public async Task DeleteByConversationIdAsync(Guid conversationId)
     {
-        var messages = await _context.ChatMessages
+        await using var context = await _contextFactory
+            .CreateDbContextAsync();
+
+        await context.ChatMessages
             .Where(x => x.ConversationId == conversationId)
-            .ToListAsync();
-
-        if (messages.Count == 0)
-        {
-            return;
-        }
-
-        _context.ChatMessages.RemoveRange(messages);
-
-        await _context.SaveChangesAsync();
+            .ExecuteDeleteAsync();
     }
 }

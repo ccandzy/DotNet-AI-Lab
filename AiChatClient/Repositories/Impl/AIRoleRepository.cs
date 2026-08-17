@@ -9,19 +9,23 @@ namespace Repositories.Impl
 {
     public class AIRoleRepository : IAIRoleRepository
     {
-        private readonly AppDbContext _context;
+        private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
 
         public AIRoleRepository(
-            AppDbContext context)
+            IDbContextFactory<AppDbContext> contextFactory)
         {
-            _context = context;
+            _contextFactory = contextFactory;
         }
 
 
         public async Task<List<AIRoleEntity>> GetEnabledRolesAsync()
         {
-            return await _context.AIRoles
+            await using var context = await _contextFactory
+                .CreateDbContextAsync();
+
+            return await context.AIRoles
+                .AsNoTracking()
                 .Where(x => x.IsEnabled)
                 .ToListAsync();
         }

@@ -6,28 +6,58 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Helpers;
 using AiChatClient.Models;
+using Microsoft.Extensions.Options;
 
 namespace AiChatClient.Services.Impl
 {
     public class OllamaChatProvider : IChatProvider
     {
-        private string Url => App.Config["Ollama:BaseUrl"]!;
+        private const string ProviderName = "Ollama";
+        private readonly IOptionsMonitor<AiOptions> _options;
 
-        public string Model => App.Config["Ollama:Model"]!;
+        public OllamaChatProvider(IOptionsMonitor<AiOptions> options)
+        {
+            _options = options;
+        }
+
+        private AIProviderOptions Provider => _options.CurrentValue.Providers
+            .FirstOrDefault(provider =>
+                string.Equals(provider.Name, ProviderName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"AI provider '{ProviderName}' is not configured.");
+
+        private string Url => Provider.BaseUrl.TrimEnd('/');
+
+        //public string Model => Provider.Models
+        //    .FirstOrDefault(model => model.IsEnabled && !string.IsNullOrWhiteSpace(model.ModelId))
+        //    ?.ModelId
+        //    ?? throw new InvalidOperationException(
+        //        $"No enabled model is configured for AI provider '{ProviderName}'.");
 
         public string ApiChatUrl => Url + "/api/chat";
 
-        public HttpContent CreateHttpContent(IReadOnlyList<ChatMessage> messages)
+        string IChatProvider.ProviderName => ProviderName;
+
+        public HttpContent CreateHttpContent(ChatRequest request)
         {
+            ArgumentNullException.ThrowIfNull(request);
+            if (string.IsNullOrWhiteSpace(request.Model))
+            {
+                throw new ArgumentException(
+                    "Model cannot be empty.",
+                    nameof(request));
+            }
             var requestBody = new OllamaChatRequest
             {
-                Model = this.Model,
+                // 空模型时回退到 AI 配置中的第一个启用模型，保持旧行为兼容。
+                Model =request.Model,
                 Stream = true
             };
-            foreach (var message in messages)
+            foreach (var message in request.Messages)
             {
                 requestBody.Messages.Add(new ModelChatMessage { Role = ConvertHelper.ConvertRole(message.Role), Content = message.Content });
             }

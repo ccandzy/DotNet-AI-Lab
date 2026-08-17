@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using System.Security.Policy;
 using System.Text;
 using System.Text.Json;
@@ -13,28 +14,33 @@ using System.Threading.Tasks;
 using AiChatClient.Dtos;
 using AiChatClient.Helpers;
 using AiChatClient.Models;
+using Services;
 
 namespace AiChatClient.Services.Impl
 {
     public class ChatService : IChatService
     {
-       private readonly IChatProvider _chatProvider;
+        private readonly IChatProviderResolver _chatProviderResolver;
         private readonly HttpClient _httpClient;
-        public ChatService(IChatProvider chatProvider, HttpClient httpClient)
+        public ChatService(IChatProviderResolver chatProviderResolver, HttpClient httpClient)
         {
-            _chatProvider = chatProvider;   
+            _chatProviderResolver = chatProviderResolver;   
             _httpClient = httpClient;
         }
 
 
-        public async IAsyncEnumerable<string> SendStreamingAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<string> SendStreamingAsync(
+            ChatRequest request,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, _chatProvider.ApiChatUrl)
+            ArgumentNullException.ThrowIfNull(request);
+           var  _chatProvider = _chatProviderResolver.Resolve(request.Provider);
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, _chatProvider.ApiChatUrl)
             {
-                Content = _chatProvider.CreateHttpContent(messages)
+                Content = _chatProvider.CreateHttpContent(request)
             };
-            Debug.WriteLine($"request.Content:{request.Content}");
-            var response = await  _httpClient.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
+            Debug.WriteLine($"request.Content:{httpRequest.Content}");
+            var response = await  _httpClient.SendAsync(httpRequest,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();
             Debug.WriteLine($"response.Content:{response.Content}");
             var result = await response.Content.ReadAsStreamAsync();

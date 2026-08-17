@@ -32,22 +32,32 @@ namespace AiChatClient.Services.Impl
 
         private string Url => Provider.BaseUrl.TrimEnd('/');
 
-        public string Model => Provider.Models
-            .FirstOrDefault(model => model.IsEnabled && !string.IsNullOrWhiteSpace(model.ModelId))
-            ?.ModelId
-            ?? throw new InvalidOperationException(
-                $"No enabled model is configured for AI provider '{ProviderName}'.");
+        //public string Model => Provider.Models
+        //    .FirstOrDefault(model => model.IsEnabled && !string.IsNullOrWhiteSpace(model.ModelId))
+        //    ?.ModelId
+        //    ?? throw new InvalidOperationException(
+        //        $"No enabled model is configured for AI provider '{ProviderName}'.");
 
         public string ApiChatUrl => Url + "/api/chat";
 
-        public HttpContent CreateHttpContent(IReadOnlyList<ChatMessage> messages)
+        string IChatProvider.ProviderName => ProviderName;
+
+        public HttpContent CreateHttpContent(ChatRequest request)
         {
+            ArgumentNullException.ThrowIfNull(request);
+            if (string.IsNullOrWhiteSpace(request.Model))
+            {
+                throw new ArgumentException(
+                    "Model cannot be empty.",
+                    nameof(request));
+            }
             var requestBody = new OllamaChatRequest
             {
-                Model = this.Model,
+                // 空模型时回退到 AI 配置中的第一个启用模型，保持旧行为兼容。
+                Model =request.Model,
                 Stream = true
             };
-            foreach (var message in messages)
+            foreach (var message in request.Messages)
             {
                 requestBody.Messages.Add(new ModelChatMessage { Role = ConvertHelper.ConvertRole(message.Role), Content = message.Content });
             }

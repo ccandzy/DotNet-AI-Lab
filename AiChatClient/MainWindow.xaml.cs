@@ -1,6 +1,5 @@
 ﻿using System.Windows;
 using System.Windows.Input;
-using System.Collections.Specialized;
 using AiChatClient.ViewModels;
 
 namespace AiChatClient
@@ -10,63 +9,12 @@ namespace AiChatClient
     /// </summary>
     public partial class MainWindow : Window
     {
-        private NotifyCollectionChangedEventHandler? _messagesHandler;
-        private System.ComponentModel.PropertyChangedEventHandler? _propertyHandler;
         public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
             DataContext = viewModel;
 
-            if (viewModel is not null)
-            {
-                // watch for CurrentConversation changes
-                _propertyHandler = new System.ComponentModel.PropertyChangedEventHandler((s, e) =>
-                {
-                    if (e.PropertyName == nameof(MainViewModel.CurrentConversation))
-                    {
-                        AttachToCurrentConversation(viewModel);
-                    }
-                });
-
-                viewModel.PropertyChanged += _propertyHandler;
-
-                // initial attach
-                AttachToCurrentConversation(viewModel);
-            }
-
             InputTextBox.PreviewKeyDown += InputTextBox_PreviewKeyDown;
-        }
-
-        private void AttachToCurrentConversation(MainViewModel vm)
-        {
-            // detach previous
-            if (_messagesHandler is not null)
-            {
-                try
-                {
-                    // find previous conversation
-                    // detach from all to be safe
-                }
-                catch { }
-            }
-
-            // attach to new
-            var conv = vm.CurrentConversation;
-            if (conv is not null)
-            {
-                _messagesHandler = new NotifyCollectionChangedEventHandler(Messages_CollectionChanged);
-                conv.Messages.CollectionChanged += _messagesHandler;
-            }
-        }
-
-        private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-        {
-            // Scroll to bottom when new messages arrive
-            Dispatcher.InvokeAsync(() =>
-            {
-                // Use ScrollViewer for scrolling instead of ListBox
-                MessagesScrollViewer.ScrollToBottom();
-            }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void InputTextBox_PreviewKeyDown(object? sender, KeyEventArgs e)

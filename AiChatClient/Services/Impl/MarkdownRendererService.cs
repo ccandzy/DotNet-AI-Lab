@@ -10,6 +10,7 @@ namespace AiChatClient.Services.Impl
         public MarkdownRendererService()
         {
             _pipeline = new MarkdownPipelineBuilder()
+                .DisableHtml()
                 .UseAdvancedExtensions()
                 .Build();
         }

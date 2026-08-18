@@ -42,6 +42,11 @@ namespace AiChatClient.Services.Impl
 
         string IChatProvider.ProviderName => ProviderName;
 
+        public void ConfigureRequest(HttpRequestMessage request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+        }
+
         public HttpContent CreateHttpContent(ChatRequest request)
         {
             ArgumentNullException.ThrowIfNull(request);
@@ -64,7 +69,7 @@ namespace AiChatClient.Services.Impl
             return JsonContent.Create(requestBody);
         }
 
-        public ChatChunk Deserialize(string payload)
+        public ChatChunk? Deserialize(string payload)
         {
             ChatChunk? chunk = null;
             try

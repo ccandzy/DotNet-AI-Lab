@@ -39,6 +39,7 @@ namespace AiChatClient.Services.Impl
             {
                 Content = _chatProvider.CreateHttpContent(request)
             };
+            _chatProvider.ConfigureRequest(httpRequest);
             Debug.WriteLine($"request.Content:{httpRequest.Content}");
             var response = await  _httpClient.SendAsync(httpRequest,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();

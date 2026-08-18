@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Local application settings may contain API keys or other secrets.
+appsettings.Local.json
+
 # User-specific files
 *.rsuser
 *.suo
@@ -483,3 +486,4 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+/AiChatClient/appsettings.Local.json.example

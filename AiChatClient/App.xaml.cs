@@ -65,6 +65,7 @@ namespace AiChatClient
 
             //services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
+            services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.DeepSeekChatProvider>();
             
             services.AddSingleton<IChatProviderResolver, ChatProviderResolver>();
             // Markdown renderer service
@@ -93,6 +94,11 @@ namespace AiChatClient
                 .AddJsonFile(
                     "appsettings.json",
                     optional: false,
+                    reloadOnChange: true)
+                // 本机配置只用于开发者本地覆盖，禁止提交到代码仓库。
+                .AddJsonFile(
+                    "appsettings.Local.json",
+                    optional: true,
                     reloadOnChange: true)
                 .Build();
 

@@ -35,10 +35,6 @@ namespace AiChatClient.Settings
         public string SystemPrompt { get; set; }
 
 
-        /// <summary>
-        /// 使用模型
-        /// </summary>
-        public string Model { get; set; }
 
 
         /// <summary>

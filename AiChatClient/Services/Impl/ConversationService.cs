@@ -128,5 +128,38 @@ namespace AiChatClient.Services.Impl
             conversation.UpdatedTime = entity.UpdatedTime;
             return true;
         }
+
+        /// <summary>
+        /// 更新会话锁定使用的模型，并持久化到数据库。
+        /// </summary>
+        public async Task<bool> UpdateConversationModelAsync(
+            Guid conversationId,
+            string modelId)
+        {
+            var conversation = Conversations
+                .FirstOrDefault(c => c.Id == conversationId);
+
+            if (conversation is null)
+            {
+                return false;
+            }
+
+            var entity = await _conversationRepository
+                .GetByIdAsync(conversationId);
+
+            if (entity is null)
+            {
+                return false;
+            }
+
+            entity.Model = modelId ?? string.Empty;
+            entity.UpdatedTime = DateTime.Now;
+
+            await _conversationRepository.UpdateAsync(entity);
+
+            conversation.Model = entity.Model;
+            conversation.UpdatedTime = entity.UpdatedTime;
+            return true;
+        }
     }
 }

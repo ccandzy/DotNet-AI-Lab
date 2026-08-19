@@ -487,6 +487,7 @@
                                        Style="{StaticResource CaptionText}"
                                        Text="厂家" />
                             <ComboBox DisplayMemberPath="Name"
+                                      IsEnabled="{Binding IsConversationConfigurationEditable}"
                                       ItemsSource="{Binding AIProviders}"
                                       SelectedItem="{Binding SelectedAIProvider, Mode=TwoWay}"
                                       Style="{StaticResource CleanComboBox}" />
@@ -496,6 +497,7 @@
                                        Style="{StaticResource CaptionText}"
                                        Text="模型" />
                             <ComboBox DisplayMemberPath="Name"
+                                      IsEnabled="{Binding IsConversationConfigurationEditable}"
                                       ItemsSource="{Binding AIModels}"
                                       SelectedItem="{Binding SelectedAIModel, Mode=TwoWay}"
                                       Style="{StaticResource CleanComboBox}" />
@@ -507,7 +509,7 @@
                                        Style="{StaticResource CaptionText}"
                                        Text="角色" />
                             <ComboBox DisplayMemberPath="Name"
-                                      IsEnabled="{Binding IsRoleSwitchEnabled}"
+                                      IsEnabled="{Binding IsConversationConfigurationEditable}"
                                       ItemsSource="{Binding Roles}"
                                       SelectedItem="{Binding SelectedRole, Mode=TwoWay}"
                                       Style="{StaticResource CleanComboBox}" />
@@ -517,7 +519,7 @@
                                     CornerRadius="7">
                                 <TextBlock FontSize="12"
                                            Foreground="#638087"
-                                           Text="角色在会话开始前可切换。会话产生消息后，角色选择会被锁定。"
+                                           Text="厂家、模型和角色仅可在会话开始前修改；会话产生消息后，这些配置会被锁定。"
                                            TextWrapping="Wrap" />
                             </Border>
                         </StackPanel>

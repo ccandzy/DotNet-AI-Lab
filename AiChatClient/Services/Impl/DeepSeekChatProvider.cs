@@ -71,7 +71,9 @@ public sealed class DeepSeekChatProvider : IChatProvider
         {
             Model = request.Model,
             Stream = true,
-            Temperature = request.Temperature
+            Temperature = request.Settings.Temperature,
+            TopP = request.Settings.TopP,
+            MaxTokens = request.Settings.MaxTokens,
         };
 
         foreach (var message in request.Messages)

@@ -40,10 +40,12 @@ namespace AiChatClient.Services.Impl
                 Content = _chatProvider.CreateHttpContent(request)
             };
             _chatProvider.ConfigureRequest(httpRequest);
-            Debug.WriteLine($"request.Content:{httpRequest.Content}");
+            var requestContent = httpRequest.Content is null
+                ? string.Empty
+                : await httpRequest.Content.ReadAsStringAsync(cancellationToken);
+            Debug.WriteLine($"request.Content:{requestContent}");
             var response = await  _httpClient.SendAsync(httpRequest,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();
-            Debug.WriteLine($"response.Content:{response.Content}");
             var result = await response.Content.ReadAsStreamAsync();
            var reader = new StreamReader(result);
             while (true)
@@ -56,6 +58,9 @@ namespace AiChatClient.Services.Impl
                     // skip empty lines
                     continue;
                 }
+
+                // 在正常读取 SSE 流时记录原始分块，不额外读取或缓存整个响应。
+                Debug.WriteLine($"response.Chunk:{line}");
 
                 // Some servers send SSE with a "data: " prefix
                 var payload = line.Trim();

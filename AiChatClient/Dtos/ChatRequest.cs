@@ -22,8 +22,8 @@ namespace AiChatClient.Dtos
         public string Model { get; init; } = string.Empty;
 
         /// <summary>
-        /// 本次请求使用的温度参数。
+        /// 本次请求的可选生成参数。
         /// </summary>
-        public double Temperature { get; init; }
+        public GenerationSettings Settings { get; init; } = new();
     }
 }

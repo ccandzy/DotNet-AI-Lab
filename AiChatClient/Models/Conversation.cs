@@ -32,6 +32,7 @@ namespace AiChatClient.Models
 
         public string Model { get; set; } = "";
 
+        public GenerationSettings GenerationSettings { get; set; } = new();
         /// <summary>
         /// 对话关联的角色
         /// </summary>

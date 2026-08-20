@@ -168,9 +168,79 @@ namespace AiChatClient.ViewModels
                     SubscribeMessagesChanged();
                     // 根据会话保存的模型同步厂家和模型下拉框。
                     SynchronizeSelectedAIConfiguration();
+                    OnPropertyChanged(nameof(Temperature));
+                    OnPropertyChanged(nameof(TopP));
+                    OnPropertyChanged(nameof(UseProviderDefaultTemperature));
+                    OnPropertyChanged(nameof(UseProviderDefaultTopP));
                     ClearCommand?.NotifyCanExecuteChanged();
                     DeleteConversationCommand?.NotifyCanExecuteChanged();
                     RenameConversationCommand?.NotifyCanExecuteChanged();
+                }
+            }
+        }
+
+        public double? Temperature
+        {
+            get => CurrentConversation?.GenerationSettings.Temperature;
+            set
+            {
+                var settings = CurrentConversation?.GenerationSettings;
+                if (settings is null || settings.Temperature == value)
+                {
+                    return;
+                }
+
+                settings.Temperature = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(UseProviderDefaultTemperature));
+            }
+        }
+
+        public bool UseProviderDefaultTemperature
+        {
+            get => Temperature is null;
+            set
+            {
+                if (value)
+                {
+                    Temperature = null;
+                }
+                else if (Temperature is null)
+                {
+                    Temperature = 0.5;
+                }
+            }
+        }
+
+        public double? TopP
+        {
+            get => CurrentConversation?.GenerationSettings.TopP;
+            set
+            {
+                var settings = CurrentConversation?.GenerationSettings;
+                if (settings is null || settings.TopP == value)
+                {
+                    return;
+                }
+
+                settings.TopP = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(UseProviderDefaultTopP));
+            }
+        }
+
+        public bool UseProviderDefaultTopP
+        {
+            get => TopP is null;
+            set
+            {
+                if (value)
+                {
+                    TopP = null;
+                }
+                else if (TopP is null)
+                {
+                    TopP = 0.5;
                 }
             }
         }
@@ -548,7 +618,12 @@ namespace AiChatClient.ViewModels
                     Model = string.IsNullOrWhiteSpace(conversationModel)
                         ? SelectedAIModel?.ModelId ?? string.Empty
                         : conversationModel,
-                    Temperature = CurrentConversation?.Role?.Temperature ?? 0
+                    Settings = new GenerationSettings
+                    {
+                        Temperature = CurrentConversation?.GenerationSettings?.Temperature,
+                        MaxTokens = CurrentConversation?.GenerationSettings?.MaxTokens,
+                        TopP = CurrentConversation?.GenerationSettings?.TopP
+                    }
                 };
 
                 await foreach (var line in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))

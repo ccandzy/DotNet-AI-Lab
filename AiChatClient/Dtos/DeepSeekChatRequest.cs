@@ -18,5 +18,14 @@ public sealed class DeepSeekChatRequest
     public bool Stream { get; set; } = true;
 
     [JsonPropertyName("temperature")]
-    public double Temperature { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Temperature { get; set; }
+
+    [JsonPropertyName("max_tokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxTokens { get; set; }
+
+    [JsonPropertyName("top_p")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TopP { get; set; }
 }

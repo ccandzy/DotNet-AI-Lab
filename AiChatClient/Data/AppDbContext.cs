@@ -70,6 +70,11 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.UpdatedTime);
 
+            entity.Property(e => e.Temperature);
+
+            entity.Property(e => e.TopP);
+
+            entity.Property(e => e.MaxTokens);
             // Foreign key: Conversation -> AIRole
             entity.HasOne(e => e.AIRole)
                   .WithMany(r => r.Conversations)

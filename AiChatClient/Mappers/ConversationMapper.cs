@@ -17,6 +17,12 @@ public static class ConversationMapper
             CreatedTime = entity.CreatedTime,
             UpdatedTime = entity.UpdatedTime,
             Model = entity.Model,
+            GenerationSettings = new GenerationSettings
+            {
+                Temperature = entity.Temperature,
+                TopP = entity.TopP,
+                MaxTokens = entity.MaxTokens
+            }
         };
 
         // 映射导航属性中的角色
@@ -46,6 +52,9 @@ public static class ConversationMapper
             CreatedTime = model.CreatedTime,
             UpdatedTime = model.UpdatedTime,
             Model = model.Model,
+            Temperature = model.GenerationSettings.Temperature,
+            TopP = model.GenerationSettings.TopP,
+            MaxTokens = model.GenerationSettings.MaxTokens,
         };
 
         // 映射关联的角色
@@ -65,6 +74,9 @@ public static class ConversationMapper
         entity.Title = model.Title;
         entity.UpdatedTime = model.UpdatedTime;
         entity.Model = model.Model;
+        entity.Temperature = model.GenerationSettings.Temperature;
+        entity.TopP = model.GenerationSettings.TopP;
+        entity.MaxTokens = model.GenerationSettings.MaxTokens;
 
         if (model.Role != null)
         {

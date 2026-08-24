@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AiChatClient.Config;
@@ -46,6 +47,7 @@ namespace AiChatClient.ViewModels
         private bool _isInitialized;
         // 保持用户快速修改会话配置时的写入顺序，与 DbContext 线程安全无关。
         private readonly SemaphoreSlim _conversationConfigurationPersistenceLock = new(1, 1);
+        private readonly Dictionary<Guid, long> _generationSettingsPersistenceVersions = new();
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
            IChatMessageService chatMessageService,
@@ -168,10 +170,7 @@ namespace AiChatClient.ViewModels
                     SubscribeMessagesChanged();
                     // 根据会话保存的模型同步厂家和模型下拉框。
                     SynchronizeSelectedAIConfiguration();
-                    OnPropertyChanged(nameof(Temperature));
-                    OnPropertyChanged(nameof(TopP));
-                    OnPropertyChanged(nameof(UseProviderDefaultTemperature));
-                    OnPropertyChanged(nameof(UseProviderDefaultTopP));
+                    NotifyGenerationSettingsChanged();
                     ClearCommand?.NotifyCanExecuteChanged();
                     DeleteConversationCommand?.NotifyCanExecuteChanged();
                     RenameConversationCommand?.NotifyCanExecuteChanged();
@@ -184,15 +183,23 @@ namespace AiChatClient.ViewModels
             get => CurrentConversation?.GenerationSettings.Temperature;
             set
             {
-                var settings = CurrentConversation?.GenerationSettings;
-                if (settings is null || settings.Temperature == value)
+                var conversation = CurrentConversation;
+                if (conversation is null)
                 {
                     return;
                 }
 
+                var settings = conversation.GenerationSettings;
+                if (settings.Temperature == value)
+                {
+                    return;
+                }
+
+                var previousSettings = CloneGenerationSettings(settings);
                 settings.Temperature = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(UseProviderDefaultTemperature));
+                ScheduleGenerationSettingsPersistence(conversation, previousSettings);
             }
         }
 
@@ -217,15 +224,23 @@ namespace AiChatClient.ViewModels
             get => CurrentConversation?.GenerationSettings.TopP;
             set
             {
-                var settings = CurrentConversation?.GenerationSettings;
-                if (settings is null || settings.TopP == value)
+                var conversation = CurrentConversation;
+                if (conversation is null)
                 {
                     return;
                 }
 
+                var settings = conversation.GenerationSettings;
+                if (settings.TopP == value)
+                {
+                    return;
+                }
+
+                var previousSettings = CloneGenerationSettings(settings);
                 settings.TopP = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(UseProviderDefaultTopP));
+                ScheduleGenerationSettingsPersistence(conversation, previousSettings);
             }
         }
 
@@ -243,6 +258,141 @@ namespace AiChatClient.ViewModels
                     TopP = 0.5;
                 }
             }
+        }
+
+        public int? MaxTokens
+        {
+            get => CurrentConversation?.GenerationSettings.MaxTokens;
+            set
+            {
+                var conversation = CurrentConversation;
+                if (conversation is null)
+                {
+                    return;
+                }
+
+                var settings = conversation.GenerationSettings;
+                if (settings.MaxTokens == value)
+                {
+                    return;
+                }
+
+                var previousSettings = CloneGenerationSettings(settings);
+                settings.MaxTokens = value;
+                OnPropertyChanged();
+                ScheduleGenerationSettingsPersistence(conversation, previousSettings);
+            }
+        }
+
+        private void ScheduleGenerationSettingsPersistence(
+            Conversation conversation,
+            GenerationSettings previousSettings)
+        {
+            var version = _generationSettingsPersistenceVersions.TryGetValue(
+                conversation.Id,
+                out var currentVersion)
+                ? currentVersion + 1
+                : 1;
+
+            _generationSettingsPersistenceVersions[conversation.Id] = version;
+
+            _ = PersistConversationGenerationSettingsAsync(
+                conversation,
+                previousSettings,
+                CloneGenerationSettings(conversation.GenerationSettings),
+                version);
+        }
+
+        private async Task PersistConversationGenerationSettingsAsync(
+            Conversation conversation,
+            GenerationSettings previousSettings,
+            GenerationSettings settingsSnapshot,
+            long version)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(350));
+
+            if (!IsLatestGenerationSettingsPersistence(conversation.Id, version))
+            {
+                return;
+            }
+
+            await _conversationConfigurationPersistenceLock.WaitAsync();
+
+            try
+            {
+                if (!IsLatestGenerationSettingsPersistence(conversation.Id, version))
+                {
+                    return;
+                }
+
+                var updated = await _conversationService
+                    .UpdateConversationConfigurationAsync(
+                        conversation.Id,
+                        settingsSnapshot);
+
+                if (!updated)
+                {
+                    throw new InvalidOperationException(
+                        $"Conversation '{conversation.Id}' was not found while updating generation settings.");
+                }
+
+                if (ReferenceEquals(CurrentConversation, conversation)
+                    && IsLatestGenerationSettingsPersistence(conversation.Id, version))
+                {
+                    NotifyGenerationSettingsChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to persist generation settings for conversation {ConversationId}.",
+                    conversation.Id);
+
+                if (IsLatestGenerationSettingsPersistence(conversation.Id, version))
+                {
+                    conversation.GenerationSettings = CloneGenerationSettings(previousSettings);
+
+                    if (ReferenceEquals(CurrentConversation, conversation))
+                    {
+                        NotifyGenerationSettingsChanged();
+                    }
+                }
+            }
+            finally
+            {
+                _conversationConfigurationPersistenceLock.Release();
+            }
+        }
+
+        private bool IsLatestGenerationSettingsPersistence(
+            Guid conversationId,
+            long version)
+        {
+            return _generationSettingsPersistenceVersions.TryGetValue(
+                conversationId,
+                out var latestVersion)
+                && latestVersion == version;
+        }
+
+        private void NotifyGenerationSettingsChanged()
+        {
+            OnPropertyChanged(nameof(Temperature));
+            OnPropertyChanged(nameof(TopP));
+            OnPropertyChanged(nameof(MaxTokens));
+            OnPropertyChanged(nameof(UseProviderDefaultTemperature));
+            OnPropertyChanged(nameof(UseProviderDefaultTopP));
+        }
+
+        private static GenerationSettings CloneGenerationSettings(
+            GenerationSettings settings)
+        {
+            return new GenerationSettings
+            {
+                Temperature = settings.Temperature,
+                TopP = settings.TopP,
+                MaxTokens = settings.MaxTokens
+            };
         }
 
         [ObservableProperty]

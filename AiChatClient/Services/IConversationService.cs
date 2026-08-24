@@ -33,5 +33,15 @@ namespace AiChatClient.Services
         /// <param name="modelId">新模型的标识。</param>
         /// <returns>会话存在且更新成功时返回 <c>true</c>；否则返回 <c>false</c>。</returns>
         Task<bool> UpdateConversationModelAsync(Guid conversationId, string modelId);
+
+        /// <summary>
+        /// 更新会话的生成参数，并持久化到数据库。
+        /// </summary>
+        /// <param name="conversationId">会话唯一标识。</param>
+        /// <param name="settings">完整的生成参数；<c>null</c> 属性表示使用 Provider 默认行为。</param>
+        /// <returns>会话存在且更新成功时返回 <c>true</c>；否则返回 <c>false</c>。</returns>
+        Task<bool> UpdateConversationConfigurationAsync(
+            Guid conversationId,
+            GenerationSettings settings);
     }
 }

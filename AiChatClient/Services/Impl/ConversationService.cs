@@ -161,5 +161,47 @@ namespace AiChatClient.Services.Impl
             conversation.UpdatedTime = entity.UpdatedTime;
             return true;
         }
+
+        /// <summary>
+        /// 一次性更新会话的完整生成参数快照，并同步内存中的会话状态。
+        /// </summary>
+        public async Task<bool> UpdateConversationConfigurationAsync(
+            Guid conversationId,
+            GenerationSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(settings);
+
+            var conversation = Conversations
+                .FirstOrDefault(c => c.Id == conversationId);
+
+            if (conversation is null)
+            {
+                return false;
+            }
+
+            var entity = await _conversationRepository
+                .GetByIdAsync(conversationId);
+
+            if (entity is null)
+            {
+                return false;
+            }
+
+            entity.Temperature = settings.Temperature;
+            entity.TopP = settings.TopP;
+            entity.MaxTokens = settings.MaxTokens;
+            entity.UpdatedTime = DateTime.Now;
+
+            await _conversationRepository.UpdateAsync(entity);
+
+            conversation.GenerationSettings = new GenerationSettings
+            {
+                Temperature = entity.Temperature,
+                TopP = entity.TopP,
+                MaxTokens = entity.MaxTokens
+            };
+            conversation.UpdatedTime = entity.UpdatedTime;
+            return true;
+        }
     }
 }

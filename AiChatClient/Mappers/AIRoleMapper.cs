@@ -17,7 +17,6 @@ public static class AIRoleMapper
             Description = entity.Description,
             Avatar = entity.Avatar,
             SystemPrompt = entity.SystemPrompt,
-            Temperature = entity.Temperature,
             IsEnabled = entity.IsEnabled,
             CreateTime = entity.CreateTime,
         };
@@ -32,7 +31,6 @@ public static class AIRoleMapper
             Description = model.Description,
             Avatar = model.Avatar,
             SystemPrompt = model.SystemPrompt,
-            Temperature = model.Temperature,
             IsEnabled = model.IsEnabled,
             CreateTime = model.CreateTime,
         };
@@ -47,7 +45,6 @@ public static class AIRoleMapper
         entity.Description = model.Description;
         entity.Avatar = model.Avatar;
         entity.SystemPrompt = model.SystemPrompt;
-        entity.Temperature = model.Temperature;
         entity.IsEnabled = model.IsEnabled;
         entity.CreateTime = model.CreateTime;
     }

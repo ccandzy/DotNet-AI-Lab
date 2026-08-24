@@ -15,10 +15,6 @@ public class AIRoleEntity
 
     public string SystemPrompt { get; set; } = string.Empty;
 
-    public string Model { get; set; } = string.Empty;
-
-    public double Temperature { get; set; }
-
     public bool IsEnabled { get; set; }
 
     public DateTime CreateTime { get; set; }

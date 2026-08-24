@@ -55,10 +55,6 @@ public class DatabaseInitializer
                 SystemPrompt =
                     "你是一个通用助手，帮助用户回答问题。",
 
-                Model = "",
-
-                Temperature = 0.2,
-
                 IsEnabled = true,
 
                 CreateTime = DateTime.Now
@@ -81,9 +77,6 @@ public class DatabaseInitializer
                     性能、可维护性和最佳实践。
                     """,
 
-                Model = "",
-
-                Temperature = 0.1,
 
                 IsEnabled = true,
 
@@ -107,9 +100,6 @@ public class DatabaseInitializer
                     性能优化和UI设计。
                     """,
 
-                Model = "",
-
-                Temperature = 0.2,
 
                 IsEnabled = true,
 
@@ -133,10 +123,6 @@ public class DatabaseInitializer
                     主动纠正错误。
                     根据用户水平调整难度。
                     """,
-
-                Model = "",
-
-                Temperature = 0.3,
 
                 IsEnabled = true,
 

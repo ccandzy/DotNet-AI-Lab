@@ -38,13 +38,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.SystemPrompt)
                   .IsRequired();
 
-            entity.Property(e => e.Model)
-                  .IsRequired()
-                  .HasMaxLength(100);
-
-            entity.Property(e => e.Temperature)
-                  .HasDefaultValue(0.7);
-
             entity.Property(e => e.CreateTime);
 
             // Index for querying enabled roles

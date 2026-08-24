@@ -540,7 +540,6 @@
                                             <DataTrigger Binding="{Binding UseProviderDefaultTemperature}" Value="True">
                                                 <Setter Property="IsEnabled" Value="False" />
                                             </DataTrigger>
-
                                         </Style.Triggers>
                                     </Style>
                                 </Slider.Style>
@@ -581,14 +580,15 @@
                             <TextBlock Margin="0,12,0,6"
                                        Style="{StaticResource CaptionText}"
                                        Text="Max Tokens" />
-                            <TextBox Padding="10,8" Text="{Binding CurrentConversation.GenerationSettings.MaxTokens, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Padding="10,8"
+                                     Text="{Binding MaxTokens, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <Border Margin="0,22,0,0"
                                     Padding="12"
                                     Background="#F3F8F8"
                                     CornerRadius="7">
                                 <TextBlock FontSize="12"
                                            Foreground="#638087"
-                                           Text="厂家、模型、角色仅可在会话开始前修改；会话产生消息后，这些配置会被锁定。"
+                                           Text="厂家、模型和角色仅可在会话开始前修改；生成参数可在会话过程中调整。"
                                            TextWrapping="Wrap" />
                             </Border>
                         </StackPanel>

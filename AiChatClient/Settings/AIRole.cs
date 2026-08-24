@@ -35,14 +35,6 @@ namespace AiChatClient.Settings
         public string SystemPrompt { get; set; }
 
 
-
-
-        /// <summary>
-        /// 温度参数
-        /// </summary>
-        public double Temperature { get; set; }
-
-
         public bool IsEnabled { get; set; }
 
 

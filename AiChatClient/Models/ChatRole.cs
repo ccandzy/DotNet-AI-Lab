@@ -8,6 +8,7 @@ namespace Models
     {
         User,
         Assistant,
-        System
+        System,
+        Tool
     }
 }

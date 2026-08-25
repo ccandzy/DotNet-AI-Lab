@@ -7,6 +7,8 @@ using AiChatClient.Config;
 using AiChatClient.Data;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.Tools;
+using AiChatClient.Services.Tools.Impl;
 using AiChatClient.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -66,6 +68,10 @@ namespace AiChatClient
             //services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
             services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.DeepSeekChatProvider>();
+
+            services.AddSingleton<ITool, CalculatorTool>();
+            services.AddSingleton<ITool, CurrentTimeTool>();
+            services.AddSingleton<IToolResolver, ToolResolver>();
             
             services.AddSingleton<IChatProviderResolver, ChatProviderResolver>();
             // Markdown renderer service

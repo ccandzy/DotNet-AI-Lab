@@ -77,7 +77,13 @@ namespace AiChatClient.Services.Impl
                 var ollamaChatResponse = JsonSerializer.Deserialize<OllamaChatResponse>(payload);
                 if (ollamaChatResponse != null)
                 {
-                    chunk = new ChatChunk() { Content = ollamaChatResponse.Message.Content, IsCompleted = ollamaChatResponse.Done };
+                    chunk = new ChatChunk
+                    {
+                        Content = ollamaChatResponse.Message.Content ?? string.Empty,
+                        CompletionReason = ollamaChatResponse.Done
+                            ? ChatCompletionReason.Stop
+                            : ChatCompletionReason.None
+                    };
                 }
             }
             catch (JsonException)

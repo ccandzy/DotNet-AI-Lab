@@ -17,6 +17,7 @@ namespace AiChatClient.Helpers
                 ChatRole.User => "user",
                 ChatRole.Assistant => "assistant",
                 ChatRole.System => "system",
+                ChatRole.Tool => "tool",
                 _ => throw new ArgumentOutOfRangeException()
             };
         }

@@ -6,8 +6,10 @@ using System.Threading.Tasks;
 using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Models;
+using AiChatClient.Models.Tools;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.Tools;
 using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -29,6 +31,7 @@ namespace AiChatClient.ViewModels
         private readonly IChatMessageService _chatMessageService;    
         private readonly IDialogService _dialogService;
         private readonly IOptionsMonitor<AiOptions> _aiOptions;
+        private readonly IReadOnlyList<ToolDefinition> _toolDefinitions;
 
         private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
         private readonly ObservableCollection<AIModelOptions> _aiModels = new();
@@ -50,9 +53,10 @@ namespace AiChatClient.ViewModels
         private readonly Dictionary<Guid, long> _generationSettingsPersistenceVersions = new();
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
-           IChatMessageService chatMessageService,
+            IChatMessageService chatMessageService,
             IAIRoleService aIRoleService, IDialogService dialogService,
-            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions)
+            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions,
+            IEnumerable<ITool> tools)
         {
             _chatService = chatService;
             _conversationService = conversationService;
@@ -60,6 +64,7 @@ namespace AiChatClient.ViewModels
             _chatMessageService = chatMessageService;
             _dialogService = dialogService;
             _aiOptions = aiOptions;
+            _toolDefinitions = tools.Select(tool => tool.Definition).ToArray();
 
             _logger = logger;
 
@@ -754,16 +759,26 @@ namespace AiChatClient.ViewModels
             await _chatMessageService.AddMessageAsync(CurrentConversation.Id, userMessage);
             CurrentInput = string.Empty;
             IsBusy = true;
-            ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now);
+            ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now)
+            {
+                IsTransient = true
+            };
             _currentRequestCts = new CancellationTokenSource();
             try
             {
-                
+                var requestMessages = Messages
+                    .Where(message => !message.IsTransient)
+                    .Select(message => new ChatRequestMessage
+                    {
+                        Role = message.Role,
+                        Content = message.Content
+                    })
+                    .ToArray();
                 Messages.Add(chatMessage);
                 var conversationModel = CurrentConversation.Model;
                 var request = new ChatRequest
                 {
-                    Messages = Messages,
+                    Messages = requestMessages,
                     Provider = SelectedAIProvider?.Name ?? string.Empty,
                     Model = string.IsNullOrWhiteSpace(conversationModel)
                         ? SelectedAIModel?.ModelId ?? string.Empty
@@ -773,16 +788,35 @@ namespace AiChatClient.ViewModels
                         Temperature = CurrentConversation?.GenerationSettings?.Temperature,
                         MaxTokens = CurrentConversation?.GenerationSettings?.MaxTokens,
                         TopP = CurrentConversation?.GenerationSettings?.TopP
-                    }
+                    },
+                    Tools = _toolDefinitions
                 };
 
-                await foreach (var line in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
+                var isDisplayingToolStatus = false;
+                await foreach (var streamEvent in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
                 {
-                    chatMessage.Content += line;
+                    switch (streamEvent.Type)
+                    {
+                        case ChatStreamEventType.ToolCalling:
+                            chatMessage.Content = $"正在调用工具：{streamEvent.ToolName}…";
+                            isDisplayingToolStatus = true;
+                            break;
+
+                        case ChatStreamEventType.TextDelta:
+                            if (isDisplayingToolStatus)
+                            {
+                                chatMessage.Content = string.Empty;
+                                isDisplayingToolStatus = false;
+                            }
+
+                            chatMessage.Content += streamEvent.Content;
+                            break;
+                    }
                 }
                 // save the assistant message to the database
                 if (CurrentConversation is not null)
                 {
+                    chatMessage.IsTransient = false;
                     await _chatMessageService.AddMessageAsync(CurrentConversation.Id, chatMessage);
                 }
             }

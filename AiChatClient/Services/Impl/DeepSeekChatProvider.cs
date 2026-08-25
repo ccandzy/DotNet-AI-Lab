@@ -7,6 +7,7 @@ using System.Text.Json;
 using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Helpers;
+using AiChatClient.Models.Tools;
 using Microsoft.Extensions.Options;
 
 namespace AiChatClient.Services.Impl;
@@ -74,18 +75,95 @@ public sealed class DeepSeekChatProvider : IChatProvider
             Temperature = request.Settings.Temperature,
             TopP = request.Settings.TopP,
             MaxTokens = request.Settings.MaxTokens,
+            Thinking = request.Tools.Count > 0 ? new DeepSeekThinking() : null
         };
 
         foreach (var message in request.Messages)
         {
-            requestBody.Messages.Add(new ModelChatMessage
-            {
-                Role = ConvertHelper.ConvertRole(message.Role),
-                Content = message.Content
-            });
+            requestBody.Messages.Add(CreateMessage(message));
+        }
+
+        if (request.Tools.Count > 0)
+        {
+            requestBody.Tools = request.Tools
+                .Select(CreateToolDefinition)
+                .ToList();
         }
 
         return JsonContent.Create(requestBody);
+    }
+
+    private static ModelChatMessage CreateMessage(ChatRequestMessage message)
+    {
+        var providerMessage = new ModelChatMessage
+        {
+            Role = ConvertHelper.ConvertRole(message.Role),
+            Content = message.Content,
+            ToolCallId = message.ToolCallId
+        };
+
+        if (message.ToolCalls.Count > 0)
+        {
+            providerMessage.ToolCalls = message.ToolCalls
+                .Select(toolCall => new DeepSeekToolCall
+                {
+                    Id = toolCall.Id,
+                    Function = new DeepSeekFunctionCall
+                    {
+                        Name = toolCall.Name,
+                        Arguments = toolCall.ArgumentsJson
+                    }
+                })
+                .ToList();
+        }
+
+        return providerMessage;
+    }
+
+    /// <summary>
+    /// 将应用内部的工具定义转换为 DeepSeek function calling 协议模型。
+    /// </summary>
+    private static DeepSeekTool CreateToolDefinition(ToolDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        var function = new DeepSeekFunctionDefinition
+        {
+            Name = definition.Name,
+            Description = definition.Description
+        };
+
+        if (definition.Parameters.Count > 0)
+        {
+            var parameters = new DeepSeekFunctionParameters();
+            var requiredParameters = new List<string>();
+
+            foreach (var parameter in definition.Parameters)
+            {
+                parameters.Properties.Add(parameter.Name, new DeepSeekFunctionParameter
+                {
+                    Type = parameter.Type,
+                    Description = parameter.Description
+                });
+
+                if (parameter.IsRequired)
+                {
+                    requiredParameters.Add(parameter.Name);
+                }
+            }
+
+            if (requiredParameters.Count > 0)
+            {
+                parameters.Required = requiredParameters;
+            }
+
+            function.Parameters = parameters;
+        }
+
+        return new DeepSeekTool
+        {
+            Function = function
+        };
     }
 
     /// <summary>
@@ -95,7 +173,10 @@ public sealed class DeepSeekChatProvider : IChatProvider
     {
         if (string.Equals(payload, "[DONE]", StringComparison.OrdinalIgnoreCase))
         {
-            return new ChatChunk { Content = string.Empty, IsCompleted = true };
+            return new ChatChunk
+            {
+                CompletionReason = ChatCompletionReason.Stop
+            };
         }
 
         try
@@ -108,10 +189,26 @@ public sealed class DeepSeekChatProvider : IChatProvider
                 return null;
             }
 
+            var toolCallDeltas = choice.Delta.ToolCalls
+                .Select(toolCall => new ToolCallDelta
+                {
+                    Index = toolCall.Index,
+                    Id = toolCall.Id,
+                    Name = toolCall.Function?.Name,
+                    ArgumentsFragment = toolCall.Function?.Arguments
+                })
+                .ToArray();
+
             return new ChatChunk
             {
                 Content = choice.Delta.Content ?? string.Empty,
-                IsCompleted = !string.IsNullOrWhiteSpace(choice.FinishReason)
+                ToolCallDeltas = toolCallDeltas,
+                CompletionReason = choice.FinishReason switch
+                {
+                    "tool_calls" => ChatCompletionReason.ToolCalls,
+                    null or "" => ChatCompletionReason.None,
+                    _ => ChatCompletionReason.Stop
+                }
             };
         }
         catch (JsonException)

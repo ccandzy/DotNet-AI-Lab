@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using AiChatClient.Models;
+using AiChatClient.Models.Tools;
 
 namespace AiChatClient.Dtos
 {
@@ -14,7 +15,7 @@ namespace AiChatClient.Dtos
         /// <summary>
         /// 本次请求包含的聊天消息。
         /// </summary>
-        public IReadOnlyList<ChatMessage> Messages { get; init; } = Array.Empty<ChatMessage>();
+        public IReadOnlyList<ChatRequestMessage> Messages { get; init; } = Array.Empty<ChatRequestMessage>();
         public string Provider { get; init; } = string.Empty;
         /// <summary>
         /// 本次请求使用的模型标识。
@@ -25,5 +26,10 @@ namespace AiChatClient.Dtos
         /// 本次请求的可选生成参数。
         /// </summary>
         public GenerationSettings Settings { get; init; } = new();
+
+        /// <summary>
+        /// 本次请求中可供 AI 选择调用的工具定义。
+        /// </summary>
+        public IReadOnlyList<ToolDefinition> Tools { get; init; } = Array.Empty<ToolDefinition>();
     }
 }

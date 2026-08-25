@@ -25,4 +25,7 @@ public sealed class DeepSeekDelta
 {
     [JsonPropertyName("content")]
     public string? Content { get; set; }
+
+    [JsonPropertyName("tool_calls")]
+    public List<DeepSeekToolCallDelta> ToolCalls { get; set; } = new();
 }

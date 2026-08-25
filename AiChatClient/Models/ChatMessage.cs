@@ -22,5 +22,10 @@ namespace AiChatClient.Models
         public DateTime Timestamp { get; }
 
         public bool IsUser => Role == ChatRole.User;
+
+        /// <summary>
+        /// 仅用于界面呈现的临时消息，不应参与后续 API 请求或写入数据库。
+        /// </summary>
+        public bool IsTransient { get; set; }
     }
 }

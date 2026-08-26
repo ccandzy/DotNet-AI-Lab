@@ -2,6 +2,21 @@
 
 Learning AI Application Development with .NET by building a production-quality AI desktop client.
 
+## Projects
+
+- `AiChatClient`: the current WPF client. DeepSeek chat, streaming, and automatic function calling are orchestrated by Semantic Kernel.
+- `AiChatClient.Legacy`: the preserved hand-written Provider/SSE/tool-calling implementation. Its internal `AiChatClient` namespaces intentionally remain unchanged.
+- `SemanticKernelDemo`: the minimal offline and DeepSeek learning sample.
+- `AiChatClient.Tests`: offline tests for plugins, SK request mapping, streaming events, cancellation, configuration validation, and database import.
+
+Both desktop clients resolve SQLite to `%LocalAppData%\AiChatClient\aichat.db`. On first use, an existing relative `aichat.db` is copied to that location without overwriting either file. Do not run the Legacy and Semantic Kernel clients at the same time.
+
+The current Semantic Kernel client supports DeepSeek only. Ollama remains available in `AiChatClient.Legacy` until its prerelease SK connector passes the required streaming and function-calling compatibility checks.
+
+### Local configuration
+
+Keep real API keys in each project's ignored `appsettings.Local.json`; never commit that file. The SK client filters its UI to the DeepSeek provider even when the local override still contains legacy Ollama configuration.
+
 ## Roadmap
 1
 - [x] WPF Project Setup
@@ -21,8 +36,8 @@ Learning AI Application Development with .NET by building a production-quality A
 - [ ] Logging & Diagnostics
 
 3、
-- [ ] Semantic Kernel
-- [ ] Function Calling
+- [x] Semantic Kernel
+- [x] Function Calling
 - [ ] RAG
 - [ ] MCP
 - [ ] AI Agent

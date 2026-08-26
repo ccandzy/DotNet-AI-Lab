@@ -6,10 +6,8 @@ using System.Threading.Tasks;
 using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Models;
-using AiChatClient.Models.Tools;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
-using AiChatClient.Services.Tools;
 using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -25,13 +23,13 @@ namespace AiChatClient.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
+        private const string SupportedProviderName = "DeepSeek";
         private readonly IChatService _chatService;
         private readonly IConversationService _conversationService;
         private readonly IAIRoleService _aIRoleService;
         private readonly IChatMessageService _chatMessageService;    
         private readonly IDialogService _dialogService;
         private readonly IOptionsMonitor<AiOptions> _aiOptions;
-        private readonly IReadOnlyList<ToolDefinition> _toolDefinitions;
 
         private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
         private readonly ObservableCollection<AIModelOptions> _aiModels = new();
@@ -55,8 +53,7 @@ namespace AiChatClient.ViewModels
         public MainViewModel(IChatService chatService, IConversationService conversationService,
             IChatMessageService chatMessageService,
             IAIRoleService aIRoleService, IDialogService dialogService,
-            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions,
-            IEnumerable<ITool> tools)
+            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions)
         {
             _chatService = chatService;
             _conversationService = conversationService;
@@ -64,8 +61,6 @@ namespace AiChatClient.ViewModels
             _chatMessageService = chatMessageService;
             _dialogService = dialogService;
             _aiOptions = aiOptions;
-            _toolDefinitions = tools.Select(tool => tool.Definition).ToArray();
-
             _logger = logger;
 
 
@@ -644,7 +639,11 @@ namespace AiChatClient.ViewModels
         {
             AIProviders.Clear();
 
-            foreach (var provider in _aiOptions.CurrentValue.Providers)
+            foreach (var provider in _aiOptions.CurrentValue.Providers.Where(provider =>
+                         string.Equals(
+                             provider.Name,
+                             SupportedProviderName,
+                             StringComparison.OrdinalIgnoreCase)))
             {
                 AIProviders.Add(provider);
             }
@@ -788,8 +787,7 @@ namespace AiChatClient.ViewModels
                         Temperature = CurrentConversation?.GenerationSettings?.Temperature,
                         MaxTokens = CurrentConversation?.GenerationSettings?.MaxTokens,
                         TopP = CurrentConversation?.GenerationSettings?.TopP
-                    },
-                    Tools = _toolDefinitions
+                    }
                 };
 
                 var isDisplayingToolStatus = false;

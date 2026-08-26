@@ -1,14 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using AiChatClient.Models;
-using AiChatClient.Models.Tools;
 
 namespace AiChatClient.Dtos
 {
     /// <summary>
     /// 表示一次统一的 AI 聊天请求。
     /// 用于在应用内部传递消息列表、目标模型和生成参数，
-    /// 由具体的 <see cref="IChatProvider"/> 转换为对应 Provider 的请求格式。
+    /// 由聊天服务转换为 Semantic Kernel 请求。
     /// </summary>
     public class ChatRequest
     {
@@ -27,9 +26,5 @@ namespace AiChatClient.Dtos
         /// </summary>
         public GenerationSettings Settings { get; init; } = new();
 
-        /// <summary>
-        /// 本次请求中可供 AI 选择调用的工具定义。
-        /// </summary>
-        public IReadOnlyList<ToolDefinition> Tools { get; init; } = Array.Empty<ToolDefinition>();
     }
 }

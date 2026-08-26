@@ -5,10 +5,10 @@ using System.Net.Http;
 using System.Windows;
 using AiChatClient.Config;
 using AiChatClient.Data;
+using AiChatClient.Plugins;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
-using AiChatClient.Services.Tools;
-using AiChatClient.Services.Tools.Impl;
+using AiChatClient.Services.SemanticKernel;
 using AiChatClient.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -26,7 +26,7 @@ namespace AiChatClient
     /// </summary>
     public partial class App : Application
     {
-        private string DataBaseConnect => App.Config["ConnectionStrings:DefaultConnection"]!;
+        private string DataBaseConnect => AppDataPathProvider.GetConnectionString(App.Config);
 
         private  ServiceProvider _serviceProvider;
         // 全局配置对象，整个程序随处调用
@@ -65,15 +65,12 @@ namespace AiChatClient
             services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
             services.AddScoped<IChatMessageService, ChatMessageService>();
 
-            //services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
-            services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
-            services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.DeepSeekChatProvider>();
-
-            services.AddSingleton<ITool, CalculatorTool>();
-            services.AddSingleton<ITool, CurrentTimeTool>();
-            services.AddSingleton<IToolResolver, ToolResolver>();
-            
-            services.AddSingleton<IChatProviderResolver, ChatProviderResolver>();
+            services.AddSingleton<CalculatorPlugin>();
+            services.AddSingleton<TimePlugin>();
+            services.AddSingleton<IKernelFactory, SemanticKernelFactory>();
+            services.AddSingleton<IChatService>(serviceProvider =>
+                new SemanticKernelChatService(
+                    serviceProvider.GetRequiredService<IKernelFactory>()));
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             // Dialog service
@@ -82,7 +79,7 @@ namespace AiChatClient
             services.AddScoped<MainWindow>();
 
             
-            services.AddHttpClient<IChatService, ChatService>();
+            services.AddHttpClient(SemanticKernelFactory.HttpClientName);
 
           
 

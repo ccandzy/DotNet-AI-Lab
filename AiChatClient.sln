@@ -5,6 +5,12 @@ VisualStudioVersion = 17.14.36518.9
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AiChatClient", "AiChatClient\AiChatClient.csproj", "{60069F2E-C972-449D-83F7-050B5AEEB428}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AiChatClient.Legacy", "AiChatClient.Legacy\AiChatClient.Legacy.csproj", "{9B4EEEF1-4579-4EBC-995B-C334666BCE0A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SemanticKernelDemo", "SemanticKernelDemo\SemanticKernelDemo.csproj", "{D4F1A4EA-1BBC-4A3A-B719-CC3551A661B4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AiChatClient.Tests", "AiChatClient.Tests\AiChatClient.Tests.csproj", "{25C16637-1F5A-4304-B12A-05B95FD0A2CF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +21,18 @@ Global
 		{60069F2E-C972-449D-83F7-050B5AEEB428}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{60069F2E-C972-449D-83F7-050B5AEEB428}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{60069F2E-C972-449D-83F7-050B5AEEB428}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B4EEEF1-4579-4EBC-995B-C334666BCE0A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B4EEEF1-4579-4EBC-995B-C334666BCE0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B4EEEF1-4579-4EBC-995B-C334666BCE0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B4EEEF1-4579-4EBC-995B-C334666BCE0A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4F1A4EA-1BBC-4A3A-B719-CC3551A661B4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4F1A4EA-1BBC-4A3A-B719-CC3551A661B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4F1A4EA-1BBC-4A3A-B719-CC3551A661B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4F1A4EA-1BBC-4A3A-B719-CC3551A661B4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{25C16637-1F5A-4304-B12A-05B95FD0A2CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{25C16637-1F5A-4304-B12A-05B95FD0A2CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{25C16637-1F5A-4304-B12A-05B95FD0A2CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{25C16637-1F5A-4304-B12A-05B95FD0A2CF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

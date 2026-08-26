@@ -1,0 +1,45 @@
+# For more info on HTTP files go to https://aka.ms/vs/httpfile
+GET http://192.168.1.46:11434
+
+### test 69
+GET http://192.168.1.69:11434
+
+
+### 获取模型列表
+GET http://192.168.1.46:11434/api/tags
+
+
+### 发送一个简单的生成请求
+POST http://192.168.1.46:11434/api/generate
+Content-Type: application/json
+
+{
+  "model": "Gemma3:1b",
+  "prompt": "你好，能听到吗？",
+  "stream": false
+}
+
+### 发送一个简单的生成请求，使用流式输出
+POST http://192.168.1.46:11434/api/generate
+Content-Type: application/json
+
+{
+  "model": "Gemma3:1b",
+  "prompt": "你好，能听到吗？",
+  "stream": true
+}
+
+
+### 发送一个简单的chat请求
+POST http://192.168.1.46:11434/api/chat
+Content-Type: application/json
+{
+  "model": "Gemma3:1b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "stream": true
+}

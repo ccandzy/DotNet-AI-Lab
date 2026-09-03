@@ -1,0 +1,23 @@
+{
+  "profiles": {
+    "SemanticKernelDemo": {
+      "commandName": "Project"
+    },
+    "DeepSeek Function Calling": {
+      "commandName": "Project",
+      "commandLineArgs": "--deepseek"
+    },
+    "Ollama Embedding": {
+      "commandName": "Project",
+      "commandLineArgs": "--embedding"
+    },
+    "In-Memory Vector Search": {
+      "commandName": "Project",
+      "commandLineArgs": "--vector-search"
+    },
+    "Markdown Chunker": {
+      "commandName": "Project",
+      "commandLineArgs": "--markdown-chunker"
+    }
+  }
+}

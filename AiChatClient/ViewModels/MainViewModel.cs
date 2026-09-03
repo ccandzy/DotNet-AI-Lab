@@ -1,12 +1,15 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Models;
+using AiChatClient.Models.Rag;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.Rag;
 using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -27,6 +30,7 @@ namespace AiChatClient.ViewModels
         private readonly IAIRoleService _aIRoleService;
         private readonly IChatMessageService _chatMessageService;    
         private readonly IDialogService _dialogService;
+        private readonly IRagService _ragService;
         private readonly IOptionsMonitor<AiOptions> _aiOptions;
 
         private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
@@ -38,26 +42,30 @@ namespace AiChatClient.ViewModels
         private CancellationTokenSource? _currentRequestCts;
         private string _currentInput = string.Empty; 
         private bool _isBusy;
+        private bool _isImportingKnowledge;
         private readonly ObservableCollection<ChatMessage> _emptyMessages = new();
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
-        private bool _isRoleSwitchEnabled = true;
+        private bool _isConversationConfigurationEditable = true;
+        private bool _isSynchronizingAIConfiguration;
         private bool _isInitialized;
-        // 仅用于保持用户快速连续选择角色时的写入顺序，与 DbContext 线程安全无关。
-        private readonly SemaphoreSlim _rolePersistenceLock = new(1, 1);
+        // 保持用户快速修改会话配置时的写入顺序，与 DbContext 线程安全无关。
+        private readonly SemaphoreSlim _conversationConfigurationPersistenceLock = new(1, 1);
+        private readonly Dictionary<Guid, long> _generationSettingsPersistenceVersions = new();
 
         public MainViewModel(IChatService chatService, IConversationService conversationService,
-           IChatMessageService chatMessageService,
+            IChatMessageService chatMessageService,
             IAIRoleService aIRoleService, IDialogService dialogService,
-            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions)
+            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions,
+            IRagService ragService)
         {
             _chatService = chatService;
             _conversationService = conversationService;
             _aIRoleService = aIRoleService;
             _chatMessageService = chatMessageService;
             _dialogService = dialogService;
+            _ragService = ragService;
             _aiOptions = aiOptions;
-
             _logger = logger;
 
 
@@ -70,9 +78,14 @@ namespace AiChatClient.ViewModels
             NewConversationCommand = new AsyncRelayCommand(NewConversation);
             DeleteConversationCommand = new AsyncRelayCommand(DeleteConversation, () => CurrentConversation is not null);
             RenameConversationCommand = new AsyncRelayCommand(RenameConversationAsync, () => CurrentConversation is not null);
+            AddKnowledgeFileCommand = new AsyncRelayCommand(
+                AddKnowledgeFileAsync,
+                () => !IsImportingKnowledge);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
+
+        public ObservableCollection<KnowledgeFileItem> KnowledgeFiles { get; } = new();
 
         /// <summary>
         /// 从 appsettings.json 的 AI:Providers 节点加载的服务厂家列表。
@@ -92,6 +105,11 @@ namespace AiChatClient.ViewModels
             get => _selectedAIProvider;
             set
             {
+                if (!_isSynchronizingAIConfiguration && !IsConversationConfigurationEditable)
+                {
+                    return;
+                }
+
                 if (!SetProperty(ref _selectedAIProvider, value))
                 {
                     return;
@@ -112,12 +130,39 @@ namespace AiChatClient.ViewModels
         }
 
         /// <summary>
-        /// UI 上当前选中的 AI 模型；本阶段仅用于展示配置，不改变现有发送链路。
+        /// UI 上当前选中的 AI 模型。会话开始前变更时，会同步并持久化到当前会话。
         /// </summary>
         public AIModelOptions? SelectedAIModel
         {
             get => _selectedAIModel;
-            set => SetProperty(ref _selectedAIModel, value);
+            set
+            {
+                if (!_isSynchronizingAIConfiguration && !IsConversationConfigurationEditable)
+                {
+                    return;
+                }
+
+                if (!SetProperty(ref _selectedAIModel, value))
+                {
+                    return;
+                }
+
+                if (_isSynchronizingAIConfiguration || CurrentConversation is null)
+                {
+                    return;
+                }
+
+                var modelId = value?.ModelId ?? string.Empty;
+                if (string.Equals(CurrentConversation.Model, modelId, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                var conversation = CurrentConversation;
+                var previousModelId = conversation.Model;
+                conversation.Model = modelId;
+                _ = PersistConversationModelAsync(conversation, previousModelId, modelId);
+            }
         }
 
         public Conversation? CurrentConversation
@@ -131,13 +176,233 @@ namespace AiChatClient.ViewModels
                     OnPropertyChanged(nameof(Messages));
                     // 切换会话时同步显示其角色，不触发用户手动切换角色的限制。
                     SynchronizeSelectedRole();
-                    // subscribe to collection changes to control role switching
+                    // 先刷新会话配置是否可编辑，供后续同步逻辑使用。
                     SubscribeMessagesChanged();
+                    // 根据会话保存的模型同步厂家和模型下拉框。
+                    SynchronizeSelectedAIConfiguration();
+                    NotifyGenerationSettingsChanged();
                     ClearCommand?.NotifyCanExecuteChanged();
                     DeleteConversationCommand?.NotifyCanExecuteChanged();
                     RenameConversationCommand?.NotifyCanExecuteChanged();
                 }
             }
+        }
+
+        public double? Temperature
+        {
+            get => CurrentConversation?.GenerationSettings.Temperature;
+            set
+            {
+                var conversation = CurrentConversation;
+                if (conversation is null)
+                {
+                    return;
+                }
+
+                var settings = conversation.GenerationSettings;
+                if (settings.Temperature == value)
+                {
+                    return;
+                }
+
+                var previousSettings = CloneGenerationSettings(settings);
+                settings.Temperature = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(UseProviderDefaultTemperature));
+                ScheduleGenerationSettingsPersistence(conversation, previousSettings);
+            }
+        }
+
+        public bool UseProviderDefaultTemperature
+        {
+            get => Temperature is null;
+            set
+            {
+                if (value)
+                {
+                    Temperature = null;
+                }
+                else if (Temperature is null)
+                {
+                    Temperature = 0.5;
+                }
+            }
+        }
+
+        public double? TopP
+        {
+            get => CurrentConversation?.GenerationSettings.TopP;
+            set
+            {
+                var conversation = CurrentConversation;
+                if (conversation is null)
+                {
+                    return;
+                }
+
+                var settings = conversation.GenerationSettings;
+                if (settings.TopP == value)
+                {
+                    return;
+                }
+
+                var previousSettings = CloneGenerationSettings(settings);
+                settings.TopP = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(UseProviderDefaultTopP));
+                ScheduleGenerationSettingsPersistence(conversation, previousSettings);
+            }
+        }
+
+        public bool UseProviderDefaultTopP
+        {
+            get => TopP is null;
+            set
+            {
+                if (value)
+                {
+                    TopP = null;
+                }
+                else if (TopP is null)
+                {
+                    TopP = 0.5;
+                }
+            }
+        }
+
+        public int? MaxTokens
+        {
+            get => CurrentConversation?.GenerationSettings.MaxTokens;
+            set
+            {
+                var conversation = CurrentConversation;
+                if (conversation is null)
+                {
+                    return;
+                }
+
+                var settings = conversation.GenerationSettings;
+                if (settings.MaxTokens == value)
+                {
+                    return;
+                }
+
+                var previousSettings = CloneGenerationSettings(settings);
+                settings.MaxTokens = value;
+                OnPropertyChanged();
+                ScheduleGenerationSettingsPersistence(conversation, previousSettings);
+            }
+        }
+
+        private void ScheduleGenerationSettingsPersistence(
+            Conversation conversation,
+            GenerationSettings previousSettings)
+        {
+            var version = _generationSettingsPersistenceVersions.TryGetValue(
+                conversation.Id,
+                out var currentVersion)
+                ? currentVersion + 1
+                : 1;
+
+            _generationSettingsPersistenceVersions[conversation.Id] = version;
+
+            _ = PersistConversationGenerationSettingsAsync(
+                conversation,
+                previousSettings,
+                CloneGenerationSettings(conversation.GenerationSettings),
+                version);
+        }
+
+        private async Task PersistConversationGenerationSettingsAsync(
+            Conversation conversation,
+            GenerationSettings previousSettings,
+            GenerationSettings settingsSnapshot,
+            long version)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(350));
+
+            if (!IsLatestGenerationSettingsPersistence(conversation.Id, version))
+            {
+                return;
+            }
+
+            await _conversationConfigurationPersistenceLock.WaitAsync();
+
+            try
+            {
+                if (!IsLatestGenerationSettingsPersistence(conversation.Id, version))
+                {
+                    return;
+                }
+
+                var updated = await _conversationService
+                    .UpdateConversationConfigurationAsync(
+                        conversation.Id,
+                        settingsSnapshot);
+
+                if (!updated)
+                {
+                    throw new InvalidOperationException(
+                        $"Conversation '{conversation.Id}' was not found while updating generation settings.");
+                }
+
+                if (ReferenceEquals(CurrentConversation, conversation)
+                    && IsLatestGenerationSettingsPersistence(conversation.Id, version))
+                {
+                    NotifyGenerationSettingsChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to persist generation settings for conversation {ConversationId}.",
+                    conversation.Id);
+
+                if (IsLatestGenerationSettingsPersistence(conversation.Id, version))
+                {
+                    conversation.GenerationSettings = CloneGenerationSettings(previousSettings);
+
+                    if (ReferenceEquals(CurrentConversation, conversation))
+                    {
+                        NotifyGenerationSettingsChanged();
+                    }
+                }
+            }
+            finally
+            {
+                _conversationConfigurationPersistenceLock.Release();
+            }
+        }
+
+        private bool IsLatestGenerationSettingsPersistence(
+            Guid conversationId,
+            long version)
+        {
+            return _generationSettingsPersistenceVersions.TryGetValue(
+                conversationId,
+                out var latestVersion)
+                && latestVersion == version;
+        }
+
+        private void NotifyGenerationSettingsChanged()
+        {
+            OnPropertyChanged(nameof(Temperature));
+            OnPropertyChanged(nameof(TopP));
+            OnPropertyChanged(nameof(MaxTokens));
+            OnPropertyChanged(nameof(UseProviderDefaultTemperature));
+            OnPropertyChanged(nameof(UseProviderDefaultTopP));
+        }
+
+        private static GenerationSettings CloneGenerationSettings(
+            GenerationSettings settings)
+        {
+            return new GenerationSettings
+            {
+                Temperature = settings.Temperature,
+                TopP = settings.TopP,
+                MaxTokens = settings.MaxTokens
+            };
         }
 
         [ObservableProperty]
@@ -152,8 +417,8 @@ namespace AiChatClient.ViewModels
                     return;
                 }
 
-                // prevent switching when conversation already started
-                if (CurrentConversation is not null && CurrentConversation.Messages.Count > 0)
+                // 会话开始后不允许再修改其配置。
+                if (!IsConversationConfigurationEditable)
                 {
                     // ignore changes when not allowed
                     return;
@@ -196,6 +461,43 @@ namespace AiChatClient.ViewModels
         }
 
         /// <summary>
+        /// 根据当前会话保存的 ModelId 同步模型及其所属厂家。
+        /// 该同步只更新界面选中项，不修改会话中已保存的模型。
+        /// </summary>
+        private void SynchronizeSelectedAIConfiguration()
+        {
+            _isSynchronizingAIConfiguration = true;
+            try
+            {
+                var conversationModelId = CurrentConversation?.Model;
+                var provider = string.IsNullOrWhiteSpace(conversationModelId)
+                    ? null
+                    : AIProviders.FirstOrDefault(candidate => candidate.Models.Any(model =>
+                        string.Equals(model.ModelId, conversationModelId, StringComparison.OrdinalIgnoreCase)));
+
+                // 先设置厂家，以便通过其 setter 刷新 AIModels。
+                SelectedAIProvider = provider ?? AIProviders.FirstOrDefault();
+
+                if (string.IsNullOrWhiteSpace(conversationModelId))
+                {
+                    return;
+                }
+
+                var selectedModel = AIModels.FirstOrDefault(model =>
+                    string.Equals(model.ModelId, conversationModelId, StringComparison.OrdinalIgnoreCase));
+
+                if (selectedModel is not null)
+                {
+                    SelectedAIModel = selectedModel;
+                }
+            }
+            finally
+            {
+                _isSynchronizingAIConfiguration = false;
+            }
+        }
+
+        /// <summary>
         /// 将用户为尚未开始的会话选择的新角色写入数据库。
         /// 通过互斥锁避免快速连续切换时并发使用同一个数据库上下文。
         /// </summary>
@@ -204,7 +506,7 @@ namespace AiChatClient.ViewModels
             AIRole? previousRole,
             Guid roleId)
         {
-            await _rolePersistenceLock.WaitAsync();
+            await _conversationConfigurationPersistenceLock.WaitAsync();
 
             try
             {
@@ -236,14 +538,62 @@ namespace AiChatClient.ViewModels
             }
             finally
             {
-                _rolePersistenceLock.Release();
+                _conversationConfigurationPersistenceLock.Release();
             }
         }
 
-        public bool IsRoleSwitchEnabled
+        /// <summary>
+        /// 将用户为尚未开始的会话选择的新模型写入数据库。
+        /// </summary>
+        private async Task PersistConversationModelAsync(
+            Conversation conversation,
+            string previousModelId,
+            string modelId)
         {
-            get => _isRoleSwitchEnabled;
-            private set => SetProperty(ref _isRoleSwitchEnabled, value);
+            await _conversationConfigurationPersistenceLock.WaitAsync();
+
+            try
+            {
+                var updated = await _conversationService
+                    .UpdateConversationModelAsync(conversation.Id, modelId);
+
+                if (!updated)
+                {
+                    throw new InvalidOperationException(
+                        $"Conversation '{conversation.Id}' was not found while updating its model.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to persist model change for conversation {ConversationId}.",
+                    conversation.Id);
+
+                if (string.Equals(conversation.Model, modelId, StringComparison.Ordinal))
+                {
+                    conversation.Model = previousModelId;
+                }
+
+                if (ReferenceEquals(CurrentConversation, conversation))
+                {
+                    SynchronizeSelectedAIConfiguration();
+                }
+            }
+            finally
+            {
+                _conversationConfigurationPersistenceLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// 当前会话的厂家、模型和角色是否仍可修改。
+        /// 会话中已有消息时，配置会被锁定以保持后续消息使用同一组设置。
+        /// </summary>
+        public bool IsConversationConfigurationEditable
+        {
+            get => _isConversationConfigurationEditable;
+            private set => SetProperty(ref _isConversationConfigurationEditable, value);
         }
         /// <summary>
         /// 加载 AI 角色与会话数据。重入保护：无论被调用多少次，只执行一次。
@@ -299,7 +649,8 @@ namespace AiChatClient.ViewModels
         {
             AIProviders.Clear();
 
-            foreach (var provider in _aiOptions.CurrentValue.Providers)
+            foreach (var provider in _aiOptions.CurrentValue.Providers.Where(provider =>
+                         AIProviderNames.IsSupported(provider.Name)))
             {
                 AIProviders.Add(provider);
             }
@@ -311,7 +662,7 @@ namespace AiChatClient.ViewModels
             // unsubscribe previous
             if (_currentConversation is null)
             {
-                IsRoleSwitchEnabled = true;
+                IsConversationConfigurationEditable = true;
                 return;
             }
 
@@ -332,18 +683,18 @@ namespace AiChatClient.ViewModels
             _currentConversation.Messages.CollectionChanged += Messages_CollectionChanged;
 
             // initial state
-            IsRoleSwitchEnabled = _currentConversation.Messages.Count == 0;
+            IsConversationConfigurationEditable = _currentConversation.Messages.Count == 0;
         }
 
         private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
-            // disable role switching once there is any message in the conversation
+            // 会话产生消息后锁定厂家、模型和角色配置。
             if (CurrentConversation is null)
             {
-                IsRoleSwitchEnabled = true;
+                IsConversationConfigurationEditable = true;
                 return;
             }
-            IsRoleSwitchEnabled = CurrentConversation.Messages.Count == 0;
+            IsConversationConfigurationEditable = CurrentConversation.Messages.Count == 0;
         }
 
         public ObservableCollection<ChatMessage> Messages => CurrentConversation?.Messages ?? _emptyMessages;
@@ -380,11 +731,25 @@ namespace AiChatClient.ViewModels
             }
         }
 
+        public bool IsImportingKnowledge
+        {
+            get => _isImportingKnowledge;
+            private set
+            {
+                if (SetProperty(ref _isImportingKnowledge, value))
+                {
+                    AddKnowledgeFileCommand.NotifyCanExecuteChanged();
+                }
+            }
+        }
+
         public IAsyncRelayCommand SendCommand { get; }
 
         public IRelayCommand StopCommand { get; }
 
         public IAsyncRelayCommand ClearCommand { get; }
+
+        public IAsyncRelayCommand AddKnowledgeFileCommand { get; }
 
         private bool CanSend()
         {
@@ -414,30 +779,85 @@ namespace AiChatClient.ViewModels
             await _chatMessageService.AddMessageAsync(CurrentConversation.Id, userMessage);
             CurrentInput = string.Empty;
             IsBusy = true;
-            ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now);
+            ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now)
+            {
+                IsTransient = true
+            };
             _currentRequestCts = new CancellationTokenSource();
             try
             {
-                
+                IReadOnlyList<VectorSearchResult> ragResults;
+                try
+                {
+                    ragResults = await _ragService.RetrieveAsync(
+                        input,
+                        _currentRequestCts.Token);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // RAG is an enhancement. Embedding/retrieval failure must not disable normal chat.
+                    _logger.LogWarning(
+                        exception,
+                        "RAG retrieval failed; falling back to normal chat. UserInput: {UserInput}",
+                        input);
+                    ragResults = Array.Empty<VectorSearchResult>();
+                }
+
+                IReadOnlyList<ChatRequestMessage> requestMessages = Messages
+                    .Where(message => !message.IsTransient)
+                    .Select(message => new ChatRequestMessage
+                    {
+                        Role = message.Role,
+                        Content = message.Content
+                    })
+                    .ToArray();
+
+                requestMessages = RagPromptComposer.AddContextToLatestUserMessage(
+                    requestMessages,
+                    input,
+                    ragResults);
                 Messages.Add(chatMessage);
-                var roleModel = CurrentConversation?.Role?.Model;
+                var conversationModel = CurrentConversation.Model;
                 var request = new ChatRequest
                 {
-                    Messages = Messages,
+                    Messages = requestMessages,
                     Provider = SelectedAIProvider?.Name ?? string.Empty,
-                    Model = string.IsNullOrWhiteSpace(roleModel)
+                    Model = string.IsNullOrWhiteSpace(conversationModel)
                         ? SelectedAIModel?.ModelId ?? string.Empty
-                        : roleModel,
-                    Temperature = CurrentConversation?.Role?.Temperature ?? 0
+                        : conversationModel,
+                    Settings = new GenerationSettings
+                    {
+                        Temperature = CurrentConversation?.GenerationSettings?.Temperature,
+                        MaxTokens = CurrentConversation?.GenerationSettings?.MaxTokens,
+                        TopP = CurrentConversation?.GenerationSettings?.TopP
+                    }
                 };
 
-                await foreach (var line in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
+                var isDisplayingToolStatus = false;
+                await foreach (var streamEvent in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
                 {
-                    chatMessage.Content += line;
+                    switch (streamEvent.Type)
+                    {
+                        case ChatStreamEventType.ToolCalling:
+                            chatMessage.Content = $"正在调用工具：{streamEvent.ToolName}…";
+                            isDisplayingToolStatus = true;
+                            break;
+
+                        case ChatStreamEventType.TextDelta:
+                            if (isDisplayingToolStatus)
+                            {
+                                chatMessage.Content = string.Empty;
+                                isDisplayingToolStatus = false;
+                            }
+
+                            chatMessage.Content += streamEvent.Content;
+                            break;
+                    }
                 }
                 // save the assistant message to the database
                 if (CurrentConversation is not null)
                 {
+                    chatMessage.IsTransient = false;
                     await _chatMessageService.AddMessageAsync(CurrentConversation.Id, chatMessage);
                 }
             }
@@ -462,6 +882,54 @@ namespace AiChatClient.ViewModels
         private void Stop()
         {
             _currentRequestCts?.Cancel();
+        }
+
+        private async Task AddKnowledgeFileAsync()
+        {
+            var filePath = _dialogService.ShowMarkdownFileDialog();
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                return;
+            }
+
+            var fullPath = Path.GetFullPath(filePath);
+            var item = KnowledgeFiles.FirstOrDefault(candidate => string.Equals(
+                candidate.SourcePath,
+                fullPath,
+                StringComparison.OrdinalIgnoreCase));
+
+            if (item is null)
+            {
+                item = new KnowledgeFileItem(fullPath);
+                KnowledgeFiles.Add(item);
+            }
+
+            var hadVectors = item.IsVectorized;
+            item.Status = "正在读取并向量化…";
+            IsImportingKnowledge = true;
+
+            try
+            {
+                var result = await _ragService.ImportMarkdownAsync(fullPath);
+                item.ChunkCount = result.ChunkCount;
+                item.IsVectorized = true;
+                item.Status = "已向量化";
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed to import Markdown knowledge file. Path: {FilePath}",
+                    fullPath);
+                item.IsVectorized = hadVectors;
+                item.Status = hadVectors
+                    ? "更新失败（保留原向量）"
+                    : $"失败：{exception.Message}";
+            }
+            finally
+            {
+                IsImportingKnowledge = false;
+            }
         }
 
         /// <summary>
@@ -511,7 +979,7 @@ namespace AiChatClient.ViewModels
 
                 UpdatedTime = DateTime.Now,
 
-                Model = string.Empty,
+                Model = SelectedAIModel?.ModelId ?? string.Empty,
 
                 Role = SelectedRole
             };

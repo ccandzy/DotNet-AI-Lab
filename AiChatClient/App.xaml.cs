@@ -5,8 +5,11 @@ using System.Net.Http;
 using System.Windows;
 using AiChatClient.Config;
 using AiChatClient.Data;
+using AiChatClient.Plugins;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.SemanticKernel;
+using AiChatClient.Services.Rag;
 using AiChatClient.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -24,7 +27,7 @@ namespace AiChatClient
     /// </summary>
     public partial class App : Application
     {
-        private string DataBaseConnect => App.Config["ConnectionStrings:DefaultConnection"]!;
+        private string DataBaseConnect => AppDataPathProvider.GetConnectionString(App.Config);
 
         private  ServiceProvider _serviceProvider;
         // 全局配置对象，整个程序随处调用
@@ -47,6 +50,10 @@ namespace AiChatClient
 
             services.Configure<AiOptions>(
                 Config.GetSection("AI"));
+            services.Configure<EmbeddingOptions>(
+                Config.GetSection("Embedding"));
+            services.Configure<RagOptions>(
+                Config.GetSection("Rag"));
 
             // 为每次数据库操作创建短生命周期 DbContext，避免整个 WPF 应用共享同一实例。
             services.AddDbContextFactory<AppDbContext>((x) =>
@@ -63,10 +70,16 @@ namespace AiChatClient
             services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
             services.AddScoped<IChatMessageService, ChatMessageService>();
 
-            //services.AddSingleton<AiChatClient.Services.IConversationService, AiChatClient.Services.Impl.ConversationService>();
-            services.AddSingleton<AiChatClient.Services.IChatProvider, AiChatClient.Services.Impl.OllamaChatProvider>();
-            
-            services.AddSingleton<IChatProviderResolver, ChatProviderResolver>();
+            services.AddSingleton<CalculatorPlugin>();
+            services.AddSingleton<TimePlugin>();
+            services.AddSingleton<IKernelFactory, SemanticKernelFactory>();
+            services.AddSingleton<IChatService>(serviceProvider =>
+                new SemanticKernelChatService(
+                    serviceProvider.GetRequiredService<IKernelFactory>()));
+            services.AddSingleton<IDocumentLoader, MarkdownDocumentLoader>();
+            services.AddSingleton<IEmbeddingService, SemanticKernelEmbeddingService>();
+            services.AddSingleton<IVectorStore, InMemoryVectorStore>();
+            services.AddSingleton<IRagService, RagService>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             // Dialog service
@@ -75,7 +88,7 @@ namespace AiChatClient
             services.AddScoped<MainWindow>();
 
             
-            services.AddHttpClient<IChatService, ChatService>();
+            services.AddHttpClient(SemanticKernelFactory.HttpClientName);
 
           
 
@@ -93,6 +106,11 @@ namespace AiChatClient
                 .AddJsonFile(
                     "appsettings.json",
                     optional: false,
+                    reloadOnChange: true)
+                // 本机配置只用于开发者本地覆盖，禁止提交到代码仓库。
+                .AddJsonFile(
+                    "appsettings.Local.json",
+                    optional: true,
                     reloadOnChange: true)
                 .Build();
 

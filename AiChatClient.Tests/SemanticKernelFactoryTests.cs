@@ -17,10 +17,10 @@ public sealed class SemanticKernelFactoryTests
 
         var exception = Assert.Throws<InvalidOperationException>(
             () => factory.CreateKernel(
-                CreateRequest(provider: "Ollama"),
+                CreateRequest(provider: "Unknown"),
                 CreateWriter()));
 
-        Assert.Contains("仅支持 DeepSeek", exception.Message);
+        Assert.Contains("不支持 AI Provider", exception.Message);
     }
 
     [Fact]
@@ -56,6 +56,52 @@ public sealed class SemanticKernelFactoryTests
             () => factory.CreateKernel(CreateRequest(), CreateWriter()));
 
         Assert.Contains("ApiKey 未配置", exception.Message);
+    }
+
+    [Fact]
+    public void CreateKernel_AcceptsOllamaWithoutARealApiKey()
+    {
+        var factory = CreateFactory(CreateOllamaOptions(
+            baseUrl: "http://192.168.137.2:11434/v1",
+            apiKey: string.Empty));
+
+        var kernel = factory.CreateKernel(
+            CreateRequest(provider: "Ollama", model: "qwen3:4b"),
+            CreateWriter());
+
+        Assert.Equal(
+            "calculate",
+            kernel.Plugins["Utilities"]["calculate"].Name);
+    }
+
+    [Fact]
+    public void CreateKernel_RejectsInvalidBaseUrl()
+    {
+        var factory = CreateFactory(CreateOllamaOptions(
+            baseUrl: "not-a-url",
+            apiKey: string.Empty));
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => factory.CreateKernel(
+                CreateRequest(provider: "Ollama", model: "qwen3:4b"),
+                CreateWriter()));
+
+        Assert.Contains("BaseUrl 未配置或格式无效", exception.Message);
+    }
+
+    [Fact]
+    public void CreateKernel_RequiresOllamaV1Endpoint()
+    {
+        var factory = CreateFactory(CreateOllamaOptions(
+            baseUrl: "http://192.168.137.2:11434",
+            apiKey: string.Empty));
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => factory.CreateKernel(
+                CreateRequest(provider: "Ollama", model: "qwen3:4b"),
+                CreateWriter()));
+
+        Assert.Contains("必须以 /v1 结尾", exception.Message);
     }
 
     [Fact]
@@ -108,6 +154,24 @@ public sealed class SemanticKernelFactoryTests
                 {
                     Name = "DeepSeek",
                     BaseUrl = "https://api.deepseek.com",
+                    ApiKey = apiKey
+                }
+            ]
+        };
+    }
+
+    private static AiOptions CreateOllamaOptions(
+        string baseUrl,
+        string apiKey)
+    {
+        return new AiOptions
+        {
+            Providers =
+            [
+                new AIProviderOptions
+                {
+                    Name = "Ollama",
+                    BaseUrl = baseUrl,
                     ApiKey = apiKey
                 }
             ]

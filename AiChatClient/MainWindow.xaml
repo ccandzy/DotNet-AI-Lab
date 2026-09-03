@@ -342,6 +342,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid Grid.Row="0">
                             <TextBlock Foreground="White"
@@ -362,7 +363,74 @@
                                  ItemsSource="{Binding Conversations}"
                                  SelectedItem="{Binding CurrentConversation, Mode=TwoWay}"
                                  Style="{StaticResource ConversationListStyle}" />
-                        <StackPanel Grid.Row="3"
+                        <Border Grid.Row="3"
+                                Margin="0,14,0,0"
+                                Padding="10"
+                                Background="#214B52"
+                                CornerRadius="7">
+                            <StackPanel>
+                                <Grid>
+                                    <TextBlock FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               Text="Markdown 知识库" />
+                                    <TextBlock HorizontalAlignment="Right"
+                                               Style="{StaticResource SidebarCaptionText}"
+                                               Text="MEMORY" />
+                                </Grid>
+                                <Button Margin="0,9,0,7"
+                                        Command="{Binding AddKnowledgeFileCommand}"
+                                        Content="＋ 添加知识文件"
+                                        Style="{StaticResource SidebarButton}" />
+                                <TextBlock Margin="0,0,0,5"
+                                           FontSize="11"
+                                           Foreground="#9EBFC2"
+                                           Text="正在处理文件…"
+                                           Visibility="{Binding IsImportingKnowledge, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <ItemsControl MaxHeight="150"
+                                              ItemsSource="{Binding KnowledgeFiles}">
+                                    <ItemsControl.Template>
+                                        <ControlTemplate TargetType="ItemsControl">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                <ItemsPresenter />
+                                            </ScrollViewer>
+                                        </ControlTemplate>
+                                    </ItemsControl.Template>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,3,0,0"
+                                                    Padding="7"
+                                                    Background="#173A40"
+                                                    CornerRadius="5"
+                                                    ToolTip="{Binding SourcePath}">
+                                                <StackPanel>
+                                                    <TextBlock FontSize="11"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="White"
+                                                               Text="{Binding FileName}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Margin="0,2,0,0"
+                                                               FontSize="10"
+                                                               Foreground="#9EBFC2"
+                                                               Text="{Binding Status}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Margin="0,2,0,0" Orientation="Horizontal">
+                                                        <TextBlock FontSize="10"
+                                                                   Foreground="#86A9AD"
+                                                                   Text="{Binding ChunkCount, StringFormat=Chunk：{0}}" />
+                                                        <TextBlock Margin="8,0,0,0"
+                                                                   FontSize="10"
+                                                                   Foreground="#86A9AD"
+                                                                   Text="{Binding IsVectorized, StringFormat=向量化：{0}}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Row="4"
                                     Margin="0,14,0,0"
                                     Orientation="Horizontal">
                             <Button Width="100"

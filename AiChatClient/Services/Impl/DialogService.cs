@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using AiChatClient.Views.Dialogs;
+using Microsoft.Win32;
 
 namespace AiChatClient.Services.Impl
 {
@@ -15,6 +16,21 @@ namespace AiChatClient.Services.Impl
             };
 
             return dialog.ShowDialog() == true ? dialog.InputText : null;
+        }
+
+        public string? ShowMarkdownFileDialog()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "添加 Markdown 知识文件",
+                Filter = "Markdown 文件 (*.md)|*.md",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            return dialog.ShowDialog(Application.Current.MainWindow) == true
+                ? dialog.FileName
+                : null;
         }
     }
 }

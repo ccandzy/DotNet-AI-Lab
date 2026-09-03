@@ -11,6 +11,8 @@
   <ItemGroup>
     <Folder Include="Contracts\" />
     <Folder Include="Views\" />
+    <Compile Include="..\SemanticKernelDemo\Documents\MarkdownChunker.cs"
+             Link="Documents\MarkdownChunker.cs" />
   </ItemGroup>
 
   <ItemGroup>

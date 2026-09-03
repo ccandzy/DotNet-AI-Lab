@@ -9,6 +9,7 @@ using AiChatClient.Plugins;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
 using AiChatClient.Services.SemanticKernel;
+using AiChatClient.Services.Rag;
 using AiChatClient.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -49,6 +50,10 @@ namespace AiChatClient
 
             services.Configure<AiOptions>(
                 Config.GetSection("AI"));
+            services.Configure<EmbeddingOptions>(
+                Config.GetSection("Embedding"));
+            services.Configure<RagOptions>(
+                Config.GetSection("Rag"));
 
             // 为每次数据库操作创建短生命周期 DbContext，避免整个 WPF 应用共享同一实例。
             services.AddDbContextFactory<AppDbContext>((x) =>
@@ -71,6 +76,10 @@ namespace AiChatClient
             services.AddSingleton<IChatService>(serviceProvider =>
                 new SemanticKernelChatService(
                     serviceProvider.GetRequiredService<IKernelFactory>()));
+            services.AddSingleton<IDocumentLoader, MarkdownDocumentLoader>();
+            services.AddSingleton<IEmbeddingService, SemanticKernelEmbeddingService>();
+            services.AddSingleton<IVectorStore, InMemoryVectorStore>();
+            services.AddSingleton<IRagService, RagService>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             // Dialog service

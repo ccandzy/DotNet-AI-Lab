@@ -6,8 +6,10 @@ using System.Threading.Tasks;
 using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Models;
+using AiChatClient.Models.Rag;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.Rag;
 using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -23,12 +25,12 @@ namespace AiChatClient.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
-        private const string SupportedProviderName = "DeepSeek";
         private readonly IChatService _chatService;
         private readonly IConversationService _conversationService;
         private readonly IAIRoleService _aIRoleService;
         private readonly IChatMessageService _chatMessageService;    
         private readonly IDialogService _dialogService;
+        private readonly IRagService _ragService;
         private readonly IOptionsMonitor<AiOptions> _aiOptions;
 
         private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
@@ -40,6 +42,7 @@ namespace AiChatClient.ViewModels
         private CancellationTokenSource? _currentRequestCts;
         private string _currentInput = string.Empty; 
         private bool _isBusy;
+        private bool _isImportingKnowledge;
         private readonly ObservableCollection<ChatMessage> _emptyMessages = new();
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
@@ -53,13 +56,15 @@ namespace AiChatClient.ViewModels
         public MainViewModel(IChatService chatService, IConversationService conversationService,
             IChatMessageService chatMessageService,
             IAIRoleService aIRoleService, IDialogService dialogService,
-            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions)
+            ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions,
+            IRagService ragService)
         {
             _chatService = chatService;
             _conversationService = conversationService;
             _aIRoleService = aIRoleService;
             _chatMessageService = chatMessageService;
             _dialogService = dialogService;
+            _ragService = ragService;
             _aiOptions = aiOptions;
             _logger = logger;
 
@@ -73,9 +78,14 @@ namespace AiChatClient.ViewModels
             NewConversationCommand = new AsyncRelayCommand(NewConversation);
             DeleteConversationCommand = new AsyncRelayCommand(DeleteConversation, () => CurrentConversation is not null);
             RenameConversationCommand = new AsyncRelayCommand(RenameConversationAsync, () => CurrentConversation is not null);
+            AddKnowledgeFileCommand = new AsyncRelayCommand(
+                AddKnowledgeFileAsync,
+                () => !IsImportingKnowledge);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
+
+        public ObservableCollection<KnowledgeFileItem> KnowledgeFiles { get; } = new();
 
         /// <summary>
         /// 从 appsettings.json 的 AI:Providers 节点加载的服务厂家列表。
@@ -640,10 +650,7 @@ namespace AiChatClient.ViewModels
             AIProviders.Clear();
 
             foreach (var provider in _aiOptions.CurrentValue.Providers.Where(provider =>
-                         string.Equals(
-                             provider.Name,
-                             SupportedProviderName,
-                             StringComparison.OrdinalIgnoreCase)))
+                         AIProviderNames.IsSupported(provider.Name)))
             {
                 AIProviders.Add(provider);
             }
@@ -724,11 +731,25 @@ namespace AiChatClient.ViewModels
             }
         }
 
+        public bool IsImportingKnowledge
+        {
+            get => _isImportingKnowledge;
+            private set
+            {
+                if (SetProperty(ref _isImportingKnowledge, value))
+                {
+                    AddKnowledgeFileCommand.NotifyCanExecuteChanged();
+                }
+            }
+        }
+
         public IAsyncRelayCommand SendCommand { get; }
 
         public IRelayCommand StopCommand { get; }
 
         public IAsyncRelayCommand ClearCommand { get; }
+
+        public IAsyncRelayCommand AddKnowledgeFileCommand { get; }
 
         private bool CanSend()
         {
@@ -765,7 +786,24 @@ namespace AiChatClient.ViewModels
             _currentRequestCts = new CancellationTokenSource();
             try
             {
-                var requestMessages = Messages
+                IReadOnlyList<VectorSearchResult> ragResults;
+                try
+                {
+                    ragResults = await _ragService.RetrieveAsync(
+                        input,
+                        _currentRequestCts.Token);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // RAG is an enhancement. Embedding/retrieval failure must not disable normal chat.
+                    _logger.LogWarning(
+                        exception,
+                        "RAG retrieval failed; falling back to normal chat. UserInput: {UserInput}",
+                        input);
+                    ragResults = Array.Empty<VectorSearchResult>();
+                }
+
+                IReadOnlyList<ChatRequestMessage> requestMessages = Messages
                     .Where(message => !message.IsTransient)
                     .Select(message => new ChatRequestMessage
                     {
@@ -773,6 +811,11 @@ namespace AiChatClient.ViewModels
                         Content = message.Content
                     })
                     .ToArray();
+
+                requestMessages = RagPromptComposer.AddContextToLatestUserMessage(
+                    requestMessages,
+                    input,
+                    ragResults);
                 Messages.Add(chatMessage);
                 var conversationModel = CurrentConversation.Model;
                 var request = new ChatRequest
@@ -839,6 +882,54 @@ namespace AiChatClient.ViewModels
         private void Stop()
         {
             _currentRequestCts?.Cancel();
+        }
+
+        private async Task AddKnowledgeFileAsync()
+        {
+            var filePath = _dialogService.ShowMarkdownFileDialog();
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                return;
+            }
+
+            var fullPath = Path.GetFullPath(filePath);
+            var item = KnowledgeFiles.FirstOrDefault(candidate => string.Equals(
+                candidate.SourcePath,
+                fullPath,
+                StringComparison.OrdinalIgnoreCase));
+
+            if (item is null)
+            {
+                item = new KnowledgeFileItem(fullPath);
+                KnowledgeFiles.Add(item);
+            }
+
+            var hadVectors = item.IsVectorized;
+            item.Status = "正在读取并向量化…";
+            IsImportingKnowledge = true;
+
+            try
+            {
+                var result = await _ragService.ImportMarkdownAsync(fullPath);
+                item.ChunkCount = result.ChunkCount;
+                item.IsVectorized = true;
+                item.Status = "已向量化";
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed to import Markdown knowledge file. Path: {FilePath}",
+                    fullPath);
+                item.IsVectorized = hadVectors;
+                item.Status = hadVectors
+                    ? "更新失败（保留原向量）"
+                    : $"失败：{exception.Message}";
+            }
+            finally
+            {
+                IsImportingKnowledge = false;
+            }
         }
 
         /// <summary>

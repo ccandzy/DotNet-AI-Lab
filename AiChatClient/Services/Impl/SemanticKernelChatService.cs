@@ -58,7 +58,9 @@ public sealed class SemanticKernelChatService : IChatService
             var history =
                 SemanticKernelRequestMapper.CreateChatHistory(request.Messages);
             var executionSettings =
-                SemanticKernelRequestMapper.CreateExecutionSettings(request.Settings);
+                SemanticKernelRequestMapper.CreateExecutionSettings(
+                    request.Settings,
+                    request.Provider);
 
             await foreach (var content in chatCompletionService
                                .GetStreamingChatMessageContentsAsync(

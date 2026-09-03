@@ -1,3 +1,4 @@
+using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Models;
 using Microsoft.SemanticKernel;
@@ -46,11 +47,12 @@ internal static class SemanticKernelRequestMapper
     }
 
     public static OpenAIPromptExecutionSettings CreateExecutionSettings(
-        GenerationSettings settings)
+        GenerationSettings settings,
+        string providerName)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        return new OpenAIPromptExecutionSettings
+        var executionSettings = new OpenAIPromptExecutionSettings
         {
             Temperature = settings.Temperature,
             TopP = settings.TopP,
@@ -60,11 +62,20 @@ internal static class SemanticKernelRequestMapper
                 {
                     AllowParallelCalls = false,
                     AllowConcurrentInvocation = false
-                }),
-            ExtensionData = new Dictionary<string, object>
+                })
+        };
+
+        if (string.Equals(
+                providerName,
+                AIProviderNames.DeepSeek,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            executionSettings.ExtensionData = new Dictionary<string, object>
             {
                 ["thinking"] = new { type = "disabled" }
-            }
-        };
+            };
+        }
+
+        return executionSettings;
     }
 }

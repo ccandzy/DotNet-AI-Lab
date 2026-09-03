@@ -46,7 +46,7 @@ public sealed class SemanticKernelRequestMapperTests
     }
 
     [Fact]
-    public void CreateExecutionSettings_MapsGenerationSettingsAndDisablesThinking()
+    public void CreateExecutionSettings_MapsGenerationSettingsAndDisablesDeepSeekThinking()
     {
         var settings = SemanticKernelRequestMapper.CreateExecutionSettings(
             new GenerationSettings
@@ -54,7 +54,8 @@ public sealed class SemanticKernelRequestMapperTests
                 Temperature = 0.25,
                 TopP = 0.75,
                 MaxTokens = 321
-            });
+            },
+            "DeepSeek");
 
         Assert.Equal(0.25, settings.Temperature);
         Assert.Equal(0.75, settings.TopP);
@@ -68,10 +69,32 @@ public sealed class SemanticKernelRequestMapperTests
     public void CreateExecutionSettings_PreservesProviderDefaults()
     {
         var settings = SemanticKernelRequestMapper.CreateExecutionSettings(
-            new GenerationSettings());
+            new GenerationSettings(),
+            "DeepSeek");
 
         Assert.Null(settings.Temperature);
         Assert.Null(settings.TopP);
         Assert.Null(settings.MaxTokens);
+    }
+
+    [Fact]
+    public void CreateExecutionSettings_DoesNotSendDeepSeekThinkingSettingToOllama()
+    {
+        var settings = SemanticKernelRequestMapper.CreateExecutionSettings(
+            new GenerationSettings
+            {
+                Temperature = 0.4,
+                TopP = 0.8,
+                MaxTokens = 2048
+            },
+            "Ollama");
+
+        Assert.Equal(0.4, settings.Temperature);
+        Assert.Equal(0.8, settings.TopP);
+        Assert.Equal(2048, settings.MaxTokens);
+        Assert.NotNull(settings.FunctionChoiceBehavior);
+        Assert.True(
+            settings.ExtensionData is null
+            || !settings.ExtensionData.ContainsKey("thinking"));
     }
 }

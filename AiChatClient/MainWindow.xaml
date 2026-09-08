@@ -423,6 +423,28 @@
                                                                    Foreground="#86A9AD"
                                                                    Text="{Binding IsVectorized, StringFormat=向量化：{0}}" />
                                                     </StackPanel>
+                                                    <Grid Margin="0,6,0,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="6" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Button Height="24"
+                                                                Padding="4,0"
+                                                                Command="{Binding DataContext.RebuildKnowledgeFileCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="重建"
+                                                                FontSize="10"
+                                                                Style="{StaticResource SidebarButton}" />
+                                                        <Button Grid.Column="2"
+                                                                Height="24"
+                                                                Padding="4,0"
+                                                                Command="{Binding DataContext.DeleteKnowledgeFileCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="删除"
+                                                                FontSize="10"
+                                                                Style="{StaticResource SidebarButton}" />
+                                                    </Grid>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
@@ -451,7 +473,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="58" />
                         <RowDefinition Height="*" />
-                        <RowDefinition Height="126" />
+                        <RowDefinition Height="154" />
                     </Grid.RowDefinitions>
 
                     <Grid Grid.Row="0">
@@ -490,13 +512,30 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="112" />
                             </Grid.ColumnDefinitions>
-                            <TextBox x:Name="InputTextBox"
-                                     Grid.Column="0"
-                                     AcceptsReturn="True"
-                                     Style="{StaticResource ComposerTextBox}"
-                                     Text="{Binding CurrentInput, UpdateSourceTrigger=PropertyChanged}"
-                                     TextWrapping="Wrap"
-                                     VerticalScrollBarVisibility="Auto" />
+                            <Grid Grid.Column="0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Margin="2,0,0,8" Orientation="Horizontal">
+                                    <CheckBox VerticalAlignment="Center"
+                                              Content="启用 RAG"
+                                              IsChecked="{Binding IsRagEnabled, Mode=TwoWay}"
+                                              IsEnabled="{Binding CanConfigureRequest}" />
+                                    <CheckBox Margin="18,0,0,0"
+                                              VerticalAlignment="Center"
+                                              Content="启用工具"
+                                              IsChecked="{Binding IsToolsEnabled, Mode=TwoWay}"
+                                              IsEnabled="{Binding CanConfigureRequest}" />
+                                </StackPanel>
+                                <TextBox x:Name="InputTextBox"
+                                         Grid.Row="1"
+                                         AcceptsReturn="True"
+                                         Style="{StaticResource ComposerTextBox}"
+                                         Text="{Binding CurrentInput, UpdateSourceTrigger=PropertyChanged}"
+                                         TextWrapping="Wrap"
+                                         VerticalScrollBarVisibility="Auto" />
+                            </Grid>
                             <StackPanel Grid.Column="1"
                                         Margin="14,0,0,0"
                                         VerticalAlignment="Center">

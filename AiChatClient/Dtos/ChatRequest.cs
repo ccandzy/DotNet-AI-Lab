@@ -26,5 +26,15 @@ namespace AiChatClient.Dtos
         /// </summary>
         public GenerationSettings Settings { get; init; } = new();
 
+        /// <summary>
+        /// Whether the native Semantic Kernel tools are available for this request.
+        /// </summary>
+        public bool EnableTools { get; init; }
+
+        /// <summary>
+        /// Forces one of the advertised tools for requests that clearly require live data or calculation.
+        /// </summary>
+        public bool RequireToolCall { get; init; }
+
     }
 }

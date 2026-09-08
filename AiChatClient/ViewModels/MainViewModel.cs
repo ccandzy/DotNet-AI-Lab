@@ -10,6 +10,7 @@ using AiChatClient.Models.Rag;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
 using AiChatClient.Services.Rag;
+using AiChatClient.Services.SemanticKernel;
 using AiChatClient.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -43,6 +44,8 @@ namespace AiChatClient.ViewModels
         private string _currentInput = string.Empty; 
         private bool _isBusy;
         private bool _isImportingKnowledge;
+        private bool _isRagEnabled;
+        private bool _isToolsEnabled;
         private readonly ObservableCollection<ChatMessage> _emptyMessages = new();
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
@@ -81,6 +84,12 @@ namespace AiChatClient.ViewModels
             AddKnowledgeFileCommand = new AsyncRelayCommand(
                 AddKnowledgeFileAsync,
                 () => !IsImportingKnowledge);
+            RebuildKnowledgeFileCommand = new AsyncRelayCommand<KnowledgeFileItem>(
+                RebuildKnowledgeFileAsync,
+                CanManageKnowledgeFile);
+            DeleteKnowledgeFileCommand = new AsyncRelayCommand<KnowledgeFileItem>(
+                DeleteKnowledgeFileAsync,
+                CanManageKnowledgeFile);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
@@ -470,26 +479,28 @@ namespace AiChatClient.ViewModels
             try
             {
                 var conversationModelId = CurrentConversation?.Model;
-                var provider = string.IsNullOrWhiteSpace(conversationModelId)
-                    ? null
-                    : AIProviders.FirstOrDefault(candidate => candidate.Models.Any(model =>
-                        string.Equals(model.ModelId, conversationModelId, StringComparison.OrdinalIgnoreCase)));
+                var selection = AIConfigurationSelectionResolver.Resolve(
+                    AIProviders,
+                    _selectedAIProvider,
+                    conversationModelId);
 
-                // 先设置厂家，以便通过其 setter 刷新 AIModels。
-                SelectedAIProvider = provider ?? AIProviders.FirstOrDefault();
+                // Always rebuild the model collection. Calling the public provider setter here used
+                // to return early when two conversations shared a provider, leaving a stale model in UI.
+                SetProperty(
+                    ref _selectedAIProvider,
+                    selection.Provider,
+                    nameof(SelectedAIProvider));
 
-                if (string.IsNullOrWhiteSpace(conversationModelId))
+                AIModels.Clear();
+                foreach (var model in selection.Models)
                 {
-                    return;
+                    AIModels.Add(model);
                 }
 
-                var selectedModel = AIModels.FirstOrDefault(model =>
-                    string.Equals(model.ModelId, conversationModelId, StringComparison.OrdinalIgnoreCase));
-
-                if (selectedModel is not null)
-                {
-                    SelectedAIModel = selectedModel;
-                }
+                SetProperty(
+                    ref _selectedAIModel,
+                    selection.Model,
+                    nameof(SelectedAIModel));
             }
             finally
             {
@@ -727,8 +738,23 @@ namespace AiChatClient.ViewModels
                     SendCommand.NotifyCanExecuteChanged();
                     StopCommand.NotifyCanExecuteChanged();
                     ClearCommand.NotifyCanExecuteChanged();
+                    OnPropertyChanged(nameof(CanConfigureRequest));
                 }
             }
+        }
+
+        public bool CanConfigureRequest => !IsBusy;
+
+        public bool IsRagEnabled
+        {
+            get => _isRagEnabled;
+            set => SetProperty(ref _isRagEnabled, value);
+        }
+
+        public bool IsToolsEnabled
+        {
+            get => _isToolsEnabled;
+            set => SetProperty(ref _isToolsEnabled, value);
         }
 
         public bool IsImportingKnowledge
@@ -739,6 +765,8 @@ namespace AiChatClient.ViewModels
                 if (SetProperty(ref _isImportingKnowledge, value))
                 {
                     AddKnowledgeFileCommand.NotifyCanExecuteChanged();
+                    RebuildKnowledgeFileCommand.NotifyCanExecuteChanged();
+                    DeleteKnowledgeFileCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -750,6 +778,10 @@ namespace AiChatClient.ViewModels
         public IAsyncRelayCommand ClearCommand { get; }
 
         public IAsyncRelayCommand AddKnowledgeFileCommand { get; }
+
+        public IAsyncRelayCommand<KnowledgeFileItem> RebuildKnowledgeFileCommand { get; }
+
+        public IAsyncRelayCommand<KnowledgeFileItem> DeleteKnowledgeFileCommand { get; }
 
         private bool CanSend()
         {
@@ -763,6 +795,9 @@ namespace AiChatClient.ViewModels
             {
                 return;
             }
+            var enableRag = IsRagEnabled;
+            var enableTools = IsToolsEnabled;
+
             // ensure system prompt from the selected role is present at the beginning of the conversation
             if (CurrentConversation is not null && CurrentConversation.Role is not null)
             {
@@ -786,25 +821,30 @@ namespace AiChatClient.ViewModels
             _currentRequestCts = new CancellationTokenSource();
             try
             {
-                IReadOnlyList<VectorSearchResult> ragResults;
-                try
+                IReadOnlyList<VectorSearchResult> ragResults = Array.Empty<VectorSearchResult>();
+                if (enableRag)
                 {
-                    ragResults = await _ragService.RetrieveAsync(
-                        input,
-                        _currentRequestCts.Token);
-                }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                {
-                    // RAG is an enhancement. Embedding/retrieval failure must not disable normal chat.
-                    _logger.LogWarning(
-                        exception,
-                        "RAG retrieval failed; falling back to normal chat. UserInput: {UserInput}",
-                        input);
-                    ragResults = Array.Empty<VectorSearchResult>();
+                    try
+                    {
+                        ragResults = await _ragService.RetrieveAsync(
+                            input,
+                            _currentRequestCts.Token);
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        // RAG is an enhancement. Embedding/retrieval failure must not disable normal chat.
+                        _logger.LogWarning(
+                            exception,
+                            "RAG retrieval failed; falling back to normal chat. UserInput: {UserInput}",
+                            input);
+                    }
                 }
 
                 IReadOnlyList<ChatRequestMessage> requestMessages = Messages
                     .Where(message => !message.IsTransient)
+                    .Where(message => message.Sources.Count == 0
+                        || message.Sources.All(source =>
+                            _ragService.IsDocumentIndexed(source.SourcePath)))
                     .Select(message => new ChatRequestMessage
                     {
                         Role = message.Role,
@@ -812,26 +852,48 @@ namespace AiChatClient.ViewModels
                     })
                     .ToArray();
 
-                requestMessages = RagPromptComposer.AddContextToLatestUserMessage(
-                    requestMessages,
-                    input,
-                    ragResults);
+                if (enableRag)
+                {
+                    requestMessages = RagPromptComposer.AddContextToLatestUserMessage(
+                        requestMessages,
+                        input,
+                        ragResults);
+                }
                 Messages.Add(chatMessage);
-                var conversationModel = CurrentConversation.Model;
+                var selectedModelId = SelectedAIModel?.ModelId ?? string.Empty;
+                if (!string.Equals(
+                        CurrentConversation.Model,
+                        selectedModelId,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "Conversation model '{ConversationModel}' differed from visible selection '{SelectedModel}'. The visible selection will be used.",
+                        CurrentConversation.Model,
+                        selectedModelId);
+                }
+
                 var request = new ChatRequest
                 {
                     Messages = requestMessages,
                     Provider = SelectedAIProvider?.Name ?? string.Empty,
-                    Model = string.IsNullOrWhiteSpace(conversationModel)
-                        ? SelectedAIModel?.ModelId ?? string.Empty
-                        : conversationModel,
+                    Model = selectedModelId,
                     Settings = new GenerationSettings
                     {
                         Temperature = CurrentConversation?.GenerationSettings?.Temperature,
                         MaxTokens = CurrentConversation?.GenerationSettings?.MaxTokens,
                         TopP = CurrentConversation?.GenerationSettings?.TopP
-                    }
+                    },
+                    EnableTools = enableTools,
+                    RequireToolCall = enableTools
+                        && ToolIntentDetector.RequiresToolCall(input)
                 };
+
+                _logger.LogInformation(
+                    "Sending chat request. Provider: {Provider}; Model: {Model}; RAG: {EnableRag}; Tools: {EnableTools}.",
+                    request.Provider,
+                    request.Model,
+                    enableRag,
+                    enableTools);
 
                 var isDisplayingToolStatus = false;
                 await foreach (var streamEvent in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
@@ -854,6 +916,16 @@ namespace AiChatClient.ViewModels
                             break;
                     }
                 }
+                chatMessage.Sources = ragResults
+                    .Select(result => new RagSourceReference(
+                        result.Chunk.FileName,
+                        result.Chunk.SourcePath,
+                        result.Chunk.HeadingPath,
+                        result.Chunk.StartLine,
+                        result.Chunk.EndLine,
+                        result.Score))
+                    .ToArray();
+                chatMessage.RagWasEnabled = enableRag;
                 // save the assistant message to the database
                 if (CurrentConversation is not null)
                 {
@@ -904,13 +976,41 @@ namespace AiChatClient.ViewModels
                 KnowledgeFiles.Add(item);
             }
 
+            await VectorizeKnowledgeFileAsync(item);
+        }
+
+        private bool CanManageKnowledgeFile(KnowledgeFileItem? item)
+        {
+            return item is not null && !IsImportingKnowledge && !item.IsProcessing;
+        }
+
+        private Task RebuildKnowledgeFileAsync(KnowledgeFileItem? item)
+        {
+            return item is null
+                ? Task.CompletedTask
+                : VectorizeKnowledgeFileAsync(item);
+        }
+
+        private async Task VectorizeKnowledgeFileAsync(KnowledgeFileItem item)
+        {
             var hadVectors = item.IsVectorized;
-            item.Status = "正在读取并向量化…";
+            if (!File.Exists(item.SourcePath))
+            {
+                item.Status = hadVectors
+                    ? "源文件不存在（保留原向量）"
+                    : "源文件不存在";
+                return;
+            }
+
+            item.Status = hadVectors
+                ? "正在重新向量化…"
+                : "正在读取并向量化…";
+            item.IsProcessing = true;
             IsImportingKnowledge = true;
 
             try
             {
-                var result = await _ragService.ImportMarkdownAsync(fullPath);
+                var result = await _ragService.ReplaceDocumentAsync(item.SourcePath);
                 item.ChunkCount = result.ChunkCount;
                 item.IsVectorized = true;
                 item.Status = "已向量化";
@@ -920,7 +1020,7 @@ namespace AiChatClient.ViewModels
                 _logger.LogError(
                     exception,
                     "Failed to import Markdown knowledge file. Path: {FilePath}",
-                    fullPath);
+                    item.SourcePath);
                 item.IsVectorized = hadVectors;
                 item.Status = hadVectors
                     ? "更新失败（保留原向量）"
@@ -928,8 +1028,42 @@ namespace AiChatClient.ViewModels
             }
             finally
             {
+                item.IsProcessing = false;
                 IsImportingKnowledge = false;
             }
+        }
+
+        private Task DeleteKnowledgeFileAsync(KnowledgeFileItem? item)
+        {
+            if (item is null)
+            {
+                return Task.CompletedTask;
+            }
+
+            item.Status = "正在移出知识库…";
+            item.IsProcessing = true;
+            IsImportingKnowledge = true;
+
+            try
+            {
+                _ragService.DeleteDocument(item.SourcePath);
+                KnowledgeFiles.Remove(item);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed to remove Markdown knowledge file. Path: {FilePath}",
+                    item.SourcePath);
+                item.Status = $"删除失败：{exception.Message}";
+            }
+            finally
+            {
+                item.IsProcessing = false;
+                IsImportingKnowledge = false;
+            }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>

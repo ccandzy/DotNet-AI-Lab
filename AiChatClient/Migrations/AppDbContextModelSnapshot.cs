@@ -66,9 +66,15 @@ namespace AiChatClient.Migrations
                     b.Property<Guid>("ConversationId")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("RagWasEnabled")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourcesJson")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("Timestamp")

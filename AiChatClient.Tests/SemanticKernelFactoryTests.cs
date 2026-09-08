@@ -66,7 +66,7 @@ public sealed class SemanticKernelFactoryTests
             apiKey: string.Empty));
 
         var kernel = factory.CreateKernel(
-            CreateRequest(provider: "Ollama", model: "qwen3:4b"),
+            CreateRequest(provider: "Ollama", model: "qwen3:4b", enableTools: true),
             CreateWriter());
 
         Assert.Equal(
@@ -109,7 +109,9 @@ public sealed class SemanticKernelFactoryTests
     {
         var factory = CreateFactory(CreateDeepSeekOptions("test-key"));
 
-        var kernel = factory.CreateKernel(CreateRequest(), CreateWriter());
+        var kernel = factory.CreateKernel(
+            CreateRequest(enableTools: true),
+            CreateWriter());
 
         Assert.Equal(
             "calculate",
@@ -117,6 +119,19 @@ public sealed class SemanticKernelFactoryTests
         Assert.Equal(
             "current_time",
             kernel.Plugins["Time"]["current_time"].Name);
+    }
+
+    [Fact]
+    public void CreateKernel_DoesNotRegisterNativePluginsWhenToolsAreDisabled()
+    {
+        var factory = CreateFactory(CreateDeepSeekOptions("test-key"));
+
+        var kernel = factory.CreateKernel(
+            CreateRequest(enableTools: false),
+            CreateWriter());
+
+        Assert.Empty(kernel.Plugins);
+        Assert.Empty(kernel.AutoFunctionInvocationFilters);
     }
 
     [Fact]
@@ -180,12 +195,14 @@ public sealed class SemanticKernelFactoryTests
 
     private static ChatRequest CreateRequest(
         string provider = "DeepSeek",
-        string model = "test-model")
+        string model = "test-model",
+        bool enableTools = false)
     {
         return new ChatRequest
         {
             Provider = provider,
-            Model = model
+            Model = model,
+            EnableTools = enableTools
         };
     }
 

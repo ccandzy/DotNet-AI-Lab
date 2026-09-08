@@ -53,6 +53,39 @@ public sealed class InMemoryVectorStore : IVectorStore
         }
     }
 
+    public int DeleteDocument(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+        var fullPath = Path.GetFullPath(sourcePath);
+        lock (_syncRoot)
+        {
+            var retained = _chunks
+                .Where(chunk => !string.Equals(
+                    Path.GetFullPath(chunk.SourcePath),
+                    fullPath,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var removedCount = _chunks.Length - retained.Length;
+            _chunks = retained;
+            return removedCount;
+        }
+    }
+
+    public bool ContainsDocument(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+        var fullPath = Path.GetFullPath(sourcePath);
+        lock (_syncRoot)
+        {
+            return _chunks.Any(chunk => string.Equals(
+                Path.GetFullPath(chunk.SourcePath),
+                fullPath,
+                StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     public IReadOnlyList<VectorSearchResult> Search(
         ReadOnlyMemory<float> queryEmbedding,
         int topK,

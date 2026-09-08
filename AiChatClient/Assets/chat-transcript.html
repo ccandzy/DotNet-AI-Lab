@@ -69,6 +69,33 @@
     .message-content th { background: #eef5f6; }
     .message-content img { max-width: 100%; height: auto; border-radius: 4px; }
     .message-content a { color: #27727c; }
+    .message-sources {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #e0eaec;
+      color: #49666d;
+      font-size: 12px;
+    }
+    .message-sources summary {
+      width: fit-content;
+      cursor: pointer;
+      color: #27727c;
+      font-weight: 600;
+      user-select: none;
+    }
+    .source-list { margin: 8px 0 0; padding-left: 22px; }
+    .source-item { margin: 7px 0; padding-left: 2px; }
+    .source-file { color: #25454d; font-weight: 600; }
+    .source-heading { margin-top: 2px; color: #557078; }
+    .source-meta { margin-top: 2px; color: #788f96; }
+    .source-similarity { margin-left: 10px; }
+    .rag-notice {
+      margin-top: 9px;
+      padding-top: 7px;
+      border-top: 1px solid #e0eaec;
+      color: #8a999e;
+      font-size: 11px;
+    }
     .message-time { margin-top: 6px; color: #788f96; font-size: 12px; line-height: 1; text-align: right; }
     #empty-state {
       display: flex;
@@ -94,6 +121,47 @@
         const element = scrollElement();
         element.scrollTop = element.scrollHeight;
       });
+      const createSources = (sources, ragWasEnabled) => {
+        if (!Array.isArray(sources) || sources.length === 0) {
+          if (!ragWasEnabled) return null;
+          const notice = document.createElement('div');
+          notice.className = 'rag-notice';
+          notice.textContent = '知识库未检索到相关内容';
+          return notice;
+        }
+
+        const details = document.createElement('details');
+        details.className = 'message-sources';
+        const summary = document.createElement('summary');
+        summary.textContent = `来源 (${sources.length})`;
+        const list = document.createElement('ol');
+        list.className = 'source-list';
+
+        for (const source of sources) {
+          const item = document.createElement('li');
+          item.className = 'source-item';
+          const file = document.createElement('div');
+          file.className = 'source-file';
+          file.textContent = source.fileName || '';
+          file.title = source.sourcePath || '';
+          const heading = document.createElement('div');
+          heading.className = 'source-heading';
+          heading.textContent = source.headingPath || '未命名章节';
+          const meta = document.createElement('div');
+          meta.className = 'source-meta';
+          const lines = document.createElement('span');
+          lines.textContent = `Lines ${source.startLine}-${source.endLine}`;
+          const similarity = document.createElement('span');
+          similarity.className = 'source-similarity';
+          similarity.textContent = `Similarity ${Number(source.similarity).toFixed(2)}`;
+          meta.append(lines, similarity);
+          item.append(file, heading, meta);
+          list.appendChild(item);
+        }
+
+        details.append(summary, list);
+        return details;
+      };
       const createMessage = (message) => {
         const row = document.createElement('article');
         row.className = `message-row ${message.role}`;
@@ -108,7 +176,10 @@
         time.className = 'message-time';
         time.textContent = message.timestamp;
 
-        bubble.append(content, time);
+        const sources = createSources(message.sources, message.ragWasEnabled);
+        bubble.append(content);
+        if (sources) bubble.append(sources);
+        bubble.append(time);
         row.appendChild(bubble);
         return row;
       };
@@ -140,12 +211,17 @@
           if (row) row.remove();
           if (container.childElementCount === 0) showEmptyState();
         },
-        updateMessageContent(id, contentHtml) {
+        updateMessage(message) {
           const follow = isNearBottom();
-          const row = container.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+          const row = container.querySelector(`[data-message-id="${CSS.escape(message.id)}"]`);
           const content = row?.querySelector('.message-content');
           if (!content) return;
-          content.innerHTML = contentHtml;
+          content.innerHTML = message.contentHtml;
+          row.querySelector('.message-sources')?.remove();
+          row.querySelector('.rag-notice')?.remove();
+          const sources = createSources(message.sources, message.ragWasEnabled);
+          const time = row.querySelector('.message-time');
+          if (sources && time) time.before(sources);
           if (follow) scrollToBottom();
         }
       };

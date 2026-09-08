@@ -96,6 +96,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Content)
                   .IsRequired();
 
+            entity.Property(e => e.SourcesJson);
+
+            entity.Property(e => e.RagWasEnabled);
+
             entity.Property(e => e.Timestamp);
 
             // Foreign key: ChatMessage -> Conversation

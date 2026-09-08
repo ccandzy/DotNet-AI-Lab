@@ -55,7 +55,8 @@ public sealed class SemanticKernelRequestMapperTests
                 TopP = 0.75,
                 MaxTokens = 321
             },
-            "DeepSeek");
+            "DeepSeek",
+            enableTools: true);
 
         Assert.Equal(0.25, settings.Temperature);
         Assert.Equal(0.75, settings.TopP);
@@ -63,6 +64,31 @@ public sealed class SemanticKernelRequestMapperTests
         Assert.NotNull(settings.FunctionChoiceBehavior);
         Assert.NotNull(settings.ExtensionData);
         Assert.True(settings.ExtensionData.ContainsKey("thinking"));
+    }
+
+    [Fact]
+    public void CreateExecutionSettings_DisablesFunctionCallingByDefault()
+    {
+        var settings = SemanticKernelRequestMapper.CreateExecutionSettings(
+            new GenerationSettings(),
+            "DeepSeek");
+
+        Assert.Null(settings.FunctionChoiceBehavior);
+    }
+
+    [Fact]
+    public void CreateExecutionSettings_RequiresToolForExplicitToolIntent()
+    {
+        var settings = SemanticKernelRequestMapper.CreateExecutionSettings(
+            new GenerationSettings(),
+            "DeepSeek",
+            enableTools: true,
+            requireToolCall: true);
+
+        Assert.NotNull(settings.FunctionChoiceBehavior);
+        Assert.Contains(
+            "Required",
+            settings.FunctionChoiceBehavior.GetType().Name);
     }
 
     [Fact]
@@ -87,7 +113,8 @@ public sealed class SemanticKernelRequestMapperTests
                 TopP = 0.8,
                 MaxTokens = 2048
             },
-            "Ollama");
+            "Ollama",
+            enableTools: true);
 
         Assert.Equal(0.4, settings.Temperature);
         Assert.Equal(0.8, settings.TopP);

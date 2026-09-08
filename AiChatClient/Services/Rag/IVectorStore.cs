@@ -10,6 +10,10 @@ public interface IVectorStore
         string sourcePath,
         IReadOnlyCollection<DocumentChunk> chunks);
 
+    int DeleteDocument(string sourcePath);
+
+    bool ContainsDocument(string sourcePath);
+
     IReadOnlyList<VectorSearchResult> Search(
         ReadOnlyMemory<float> queryEmbedding,
         int topK,

@@ -170,7 +170,10 @@ public partial class ChatTranscriptView : UserControl
     private void Message_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (sender is ChatMessage message &&
-            (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(ChatMessage.Content)))
+            (string.IsNullOrEmpty(e.PropertyName)
+             || e.PropertyName == nameof(ChatMessage.Content)
+             || e.PropertyName == nameof(ChatMessage.Sources)
+             || e.PropertyName == nameof(ChatMessage.RagWasEnabled)))
         {
             _ = UpdateMessageAsync(message);
         }
@@ -237,7 +240,7 @@ public partial class ChatTranscriptView : UserControl
     {
         var payload = CreatePayload(message);
         return ExecuteScriptAsync(() =>
-            $"window.chatTranscript.updateMessageContent({JsonSerializer.Serialize(payload.Id)}, {JsonSerializer.Serialize(payload.ContentHtml)});");
+            $"window.chatTranscript.updateMessage({JsonSerializer.Serialize(payload, JsonOptions)});");
     }
 
     private async Task ExecuteScriptAsync(Func<string> createScript)
@@ -270,7 +273,17 @@ public partial class ChatTranscriptView : UserControl
         GetMessageKey(message),
         message.IsUser ? "user" : "assistant",
         RenderMessageContent(message),
-        message.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
+        message.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+        message.Sources
+            .Select(source => new TranscriptSource(
+                source.FileName,
+                source.SourcePath,
+                source.HeadingPath,
+                source.StartLine,
+                source.EndLine,
+                source.Similarity))
+            .ToArray(),
+        message.RagWasEnabled);
 
     private string RenderMessageContent(ChatMessage message)
     {
@@ -296,5 +309,19 @@ public partial class ChatTranscriptView : UserControl
         return key;
     }
 
-    private sealed record TranscriptMessage(string Id, string Role, string ContentHtml, string Timestamp);
+    private sealed record TranscriptMessage(
+        string Id,
+        string Role,
+        string ContentHtml,
+        string Timestamp,
+        IReadOnlyList<TranscriptSource> Sources,
+        bool RagWasEnabled);
+
+    private sealed record TranscriptSource(
+        string FileName,
+        string SourcePath,
+        string HeadingPath,
+        int StartLine,
+        int EndLine,
+        double Similarity);
 }

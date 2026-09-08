@@ -48,7 +48,9 @@ internal static class SemanticKernelRequestMapper
 
     public static OpenAIPromptExecutionSettings CreateExecutionSettings(
         GenerationSettings settings,
-        string providerName)
+        string providerName,
+        bool enableTools = false,
+        bool requireToolCall = false)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
@@ -56,14 +58,24 @@ internal static class SemanticKernelRequestMapper
         {
             Temperature = settings.Temperature,
             TopP = settings.TopP,
-            MaxTokens = settings.MaxTokens,
-            FunctionChoiceBehavior = FunctionChoiceBehavior.Auto(
-                options: new FunctionChoiceBehaviorOptions
-                {
-                    AllowParallelCalls = false,
-                    AllowConcurrentInvocation = false
-                })
+            MaxTokens = settings.MaxTokens
         };
+
+        if (enableTools)
+        {
+            var options = new FunctionChoiceBehaviorOptions
+            {
+                AllowParallelCalls = false,
+                AllowConcurrentInvocation = false
+            };
+            executionSettings.FunctionChoiceBehavior = requireToolCall
+                ? FunctionChoiceBehavior.Required(
+                    autoInvoke: true,
+                    options: options)
+                : FunctionChoiceBehavior.Auto(
+                    autoInvoke: true,
+                    options: options);
+        }
 
         if (string.Equals(
                 providerName,

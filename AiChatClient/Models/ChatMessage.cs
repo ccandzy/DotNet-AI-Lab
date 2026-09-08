@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using AiChatClient.Models.Rag;
 using Models;
 
 namespace AiChatClient.Models
@@ -18,6 +19,12 @@ namespace AiChatClient.Models
 
         [ObservableProperty]
         private string content="";
+
+        [ObservableProperty]
+        private IReadOnlyList<RagSourceReference> sources = Array.Empty<RagSourceReference>();
+
+        [ObservableProperty]
+        private bool ragWasEnabled;
 
         public DateTime Timestamp { get; }
 

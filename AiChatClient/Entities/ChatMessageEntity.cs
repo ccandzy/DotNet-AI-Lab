@@ -16,6 +16,13 @@ public class ChatMessageEntity
 
     public string Content { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Optional JSON snapshot of RAG sources displayed with an assistant answer.
+    /// </summary>
+    public string? SourcesJson { get; set; }
+
+    public bool RagWasEnabled { get; set; }
+
     public DateTime Timestamp { get; set; }
 
     // Navigation property

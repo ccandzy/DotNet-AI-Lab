@@ -1,5 +1,7 @@
 using AiChatClient.Entities;
 using AiChatClient.Models;
+using AiChatClient.Models.Rag;
+using System.Text.Json;
 using Models;
 
 namespace AiChatClient.Mappers;
@@ -19,7 +21,11 @@ public static class ChatMessageMapper
             _ => ChatRole.User,
         };
 
-        return new ChatMessage(role, entity.Content, entity.Timestamp);
+        return new ChatMessage(role, entity.Content, entity.Timestamp)
+        {
+            Sources = DeserializeSources(entity.SourcesJson),
+            RagWasEnabled = entity.RagWasEnabled
+        };
     }
 
     public static ChatMessageEntity ToEntity(ChatMessage model, Guid conversationId)
@@ -36,7 +42,30 @@ public static class ChatMessageMapper
                 _ => "User",
             },
             Content = model.Content,
+            SourcesJson = model.Sources.Count == 0
+                ? null
+                : JsonSerializer.Serialize(model.Sources),
+            RagWasEnabled = model.RagWasEnabled,
             Timestamp = model.Timestamp,
         };
+    }
+
+    private static IReadOnlyList<RagSourceReference> DeserializeSources(string? sourcesJson)
+    {
+        if (string.IsNullOrWhiteSpace(sourcesJson))
+        {
+            return Array.Empty<RagSourceReference>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<RagSourceReference[]>(sourcesJson)
+                ?? Array.Empty<RagSourceReference>();
+        }
+        catch (JsonException)
+        {
+            // Keep historical messages readable if citation metadata is damaged.
+            return Array.Empty<RagSourceReference>();
+        }
     }
 }

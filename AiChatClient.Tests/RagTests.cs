@@ -95,6 +95,23 @@ public sealed class RagTests
     }
 
     [Fact]
+    public void PromptComposer_NoResults_LeavesNormalChatRequestUnchanged()
+    {
+        IReadOnlyList<ChatRequestMessage> messages =
+        [
+            new() { Role = ChatRole.User, Content = "内部约定是什么？" }
+        ];
+
+        var augmented = RagPromptComposer.AddContextToLatestUserMessage(
+            messages,
+            "内部约定是什么？",
+            []);
+
+        Assert.Same(messages, augmented);
+        Assert.Equal("内部约定是什么？", augmented[0].Content);
+    }
+
+    [Fact]
     public async Task RagService_ImportsThenEmbedsQueryAndRetrievesOriginalText()
     {
         var sourcePath = Path.Combine(Path.GetTempPath(), "channels.md");
@@ -120,7 +137,7 @@ public sealed class RagTests
                 MinimumSimilarity = 0.5
             }));
 
-        var import = await service.ImportMarkdownAsync(sourcePath);
+        var import = await service.ReplaceDocumentAsync(sourcePath);
         var results = await service.RetrieveAsync("Channel<T> 是什么？");
 
         Assert.Equal(1, import.ChunkCount);
@@ -130,6 +147,58 @@ public sealed class RagTests
         Assert.Equal(2, embedding.CallCount);
         Assert.Contains("Channels > 基础", embedding.InputBatches[0][0]);
         Assert.Equal("Channel<T> 是什么？", embedding.InputBatches[1][0]);
+    }
+
+    [Fact]
+    public void VectorStore_DeleteDocument_RemovesOnlyMatchingSourcePath()
+    {
+        var store = new InMemoryVectorStore();
+        var firstPath = Path.Combine(Path.GetTempPath(), "first.md");
+        var secondPath = Path.Combine(Path.GetTempPath(), "second.md");
+        store.ReplaceDocument(firstPath,
+        [
+            CreateChunk(firstPath, 1, "first-1", new float[] { 1f, 0f }),
+            CreateChunk(firstPath, 2, "first-2", new float[] { 1f, 0f })
+        ]);
+        store.ReplaceDocument(secondPath,
+        [
+            CreateChunk(secondPath, 1, "second", new float[] { 1f, 0f })
+        ]);
+
+        var removedCount = store.DeleteDocument(firstPath);
+        var results = store.Search(new float[] { 1f, 0f }, 10, -1);
+
+        Assert.Equal(2, removedCount);
+        Assert.False(store.ContainsDocument(firstPath));
+        Assert.True(store.ContainsDocument(secondPath));
+        Assert.Single(results);
+        Assert.Equal(Path.GetFullPath(secondPath), results[0].Chunk.SourcePath);
+    }
+
+    [Fact]
+    public async Task RagService_FailedReplacement_PreservesPreviousDocument()
+    {
+        var sourcePath = Path.Combine(Path.GetTempPath(), "replacement.md");
+        var store = new InMemoryVectorStore();
+        store.ReplaceDocument(sourcePath,
+        [
+            CreateChunk(sourcePath, 1, "original", new float[] { 1f, 0f })
+        ]);
+        var service = new RagService(
+            new StubDocumentLoader(
+            [
+                new DocumentTextChunk(1, sourcePath, "Heading", 1, 1, "replacement")
+            ]),
+            new ThrowingEmbeddingService(),
+            store,
+            Options.Create(new RagOptions()));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ReplaceDocumentAsync(sourcePath));
+
+        var results = store.Search(new float[] { 1f, 0f }, 10, -1);
+        Assert.Single(results);
+        Assert.Equal("original", results[0].Chunk.Content);
     }
 
     [Fact]
@@ -208,6 +277,16 @@ public sealed class RagTests
                 .Select(_ => _embedding)
                 .ToArray();
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class ThrowingEmbeddingService : IEmbeddingService
+    {
+        public Task<IReadOnlyList<ReadOnlyMemory<float>>> GenerateAsync(
+            IReadOnlyList<string> inputs,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("embedding failed");
         }
     }
 }

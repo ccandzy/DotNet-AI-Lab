@@ -111,10 +111,13 @@ internal sealed class SemanticKernelFactory : IKernelFactory
             httpClient: _httpClientFactory.CreateClient(HttpClientName));
 
         var kernel = builder.Build();
-        kernel.Plugins.AddFromObject(_calculatorPlugin, "Utilities");
-        kernel.Plugins.AddFromObject(_timePlugin, "Time");
-        kernel.AutoFunctionInvocationFilters.Add(
-            new ToolInvocationEventFilter(eventWriter));
+        if (request.EnableTools)
+        {
+            kernel.Plugins.AddFromObject(_calculatorPlugin, "Utilities");
+            kernel.Plugins.AddFromObject(_timePlugin, "Time");
+            kernel.AutoFunctionInvocationFilters.Add(
+                new ToolInvocationEventFilter(eventWriter));
+        }
 
         return kernel;
     }

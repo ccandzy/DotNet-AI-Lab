@@ -60,7 +60,9 @@ public sealed class SemanticKernelChatService : IChatService
             var executionSettings =
                 SemanticKernelRequestMapper.CreateExecutionSettings(
                     request.Settings,
-                    request.Provider);
+                    request.Provider,
+                    request.EnableTools,
+                    request.RequireToolCall);
 
             await foreach (var content in chatCompletionService
                                .GetStreamingChatMessageContentsAsync(

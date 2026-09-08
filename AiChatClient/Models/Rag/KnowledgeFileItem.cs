@@ -25,4 +25,7 @@ public partial class KnowledgeFileItem : ObservableObject
 
     [ObservableProperty]
     private bool _isVectorized;
+
+    [ObservableProperty]
+    private bool _isProcessing;
 }

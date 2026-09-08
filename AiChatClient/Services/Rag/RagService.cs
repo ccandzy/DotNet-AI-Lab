@@ -26,7 +26,7 @@ public sealed class RagService : IRagService
         _options = options.Value;
     }
 
-    public async Task<RagImportResult> ImportMarkdownAsync(
+    public async Task<RagImportResult> ReplaceDocumentAsync(
         string filePath,
         CancellationToken cancellationToken = default)
     {
@@ -76,6 +76,18 @@ public sealed class RagService : IRagService
         _vectorStore.ReplaceDocument(fullPath, embeddedChunks);
 
         return new RagImportResult(fullPath, fileName, embeddedChunks.Length);
+    }
+
+    public int DeleteDocument(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        return _vectorStore.DeleteDocument(sourcePath);
+    }
+
+    public bool IsDocumentIndexed(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        return _vectorStore.ContainsDocument(sourcePath);
     }
 
     public async Task<IReadOnlyList<VectorSearchResult>> RetrieveAsync(

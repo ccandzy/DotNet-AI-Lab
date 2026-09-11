@@ -5,6 +5,9 @@ namespace AiChatClient.Config;
 /// </summary>
 public sealed class RagOptions
 {
+    public int ImportTimeoutSeconds { get; set; } = 120;
+
+    public int RetrievalTimeoutSeconds { get; set; } = 30;
     public int MaxChunkCharacters { get; set; } = 1200;
 
     public int OverlapCharacters { get; set; } = 120;

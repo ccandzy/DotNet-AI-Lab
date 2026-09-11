@@ -1,4 +1,4 @@
-﻿using System.Configuration;
+using System.Configuration;
 using System.Data;
 using System.IO;
 using System.Net.Http;
@@ -8,6 +8,7 @@ using AiChatClient.Data;
 using AiChatClient.Plugins;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.Mcp;
 using AiChatClient.Services.SemanticKernel;
 using AiChatClient.Services.Rag;
 using AiChatClient.ViewModels;
@@ -29,10 +30,10 @@ namespace AiChatClient
     {
         private string DataBaseConnect => AppDataPathProvider.GetConnectionString(App.Config);
 
-        private  ServiceProvider _serviceProvider;
+        private ServiceProvider? _serviceProvider;
         // 全局配置对象，整个程序随处调用
-        public static IConfiguration Config { get; private set; }
-        public static IServiceProvider Services { get; private set; }
+        public static IConfiguration Config { get; private set; } = null!;
+        public static IServiceProvider Services { get; private set; } = null!;
         private IServiceScope? _appScope;
         public App()
         {
@@ -80,6 +81,9 @@ namespace AiChatClient
             services.AddSingleton<IEmbeddingService, SemanticKernelEmbeddingService>();
             services.AddSingleton<IVectorStore, InMemoryVectorStore>();
             services.AddSingleton<IRagService, RagService>();
+            // MCP Client 持有一个 Server 子进程，因此整个应用只创建一个实例。
+            // ServiceProvider 在应用退出时 Dispose，它会清理仍在运行的子进程。
+            services.AddSingleton<IMcpClientService, McpClientService>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             // Dialog service
@@ -101,19 +105,10 @@ namespace AiChatClient
             base.OnStartup(e);
 
 
-            Config = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile(
-                    "appsettings.json",
-                    optional: false,
-                    reloadOnChange: true)
-                // 本机配置只用于开发者本地覆盖，禁止提交到代码仓库。
-                .AddJsonFile(
-                    "appsettings.Local.json",
-                    optional: true,
-                    reloadOnChange: true)
-                .Build();
-
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var started = await StartupConfiguration.TryInitializeAsync(async () =>
+            {
+            Config = StartupConfiguration.Load();
 
             var services = new ServiceCollection();
 
@@ -149,14 +144,22 @@ namespace AiChatClient
                 .GetRequiredService<MainWindow>();
 
 
+            MainWindow = mainWindow;
             mainWindow.Show();
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+            }, ex => MessageBox.Show(
+                $"程序启动失败，请检查配置和数据库后重新启动。\n{ex.Message}",
+                "启动失败", MessageBoxButton.OK, MessageBoxImage.Error));
+            if (!started) Shutdown(1);
         }
         protected override void OnExit( ExitEventArgs e)
         {
-            _appScope?.Dispose();
-
-            _serviceProvider?.Dispose();
-
+            try { _appScope?.Dispose(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+            try { _serviceProvider?.Dispose(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+            try { (Config as IDisposable)?.Dispose(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
             base.OnExit(e);
         }
     }

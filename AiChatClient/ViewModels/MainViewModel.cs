@@ -9,6 +9,7 @@ using AiChatClient.Models;
 using AiChatClient.Models.Rag;
 using AiChatClient.Services;
 using AiChatClient.Services.Impl;
+using AiChatClient.Services.Mcp;
 using AiChatClient.Services.Rag;
 using AiChatClient.Services.SemanticKernel;
 using AiChatClient.Settings;
@@ -32,6 +33,8 @@ namespace AiChatClient.ViewModels
         private readonly IChatMessageService _chatMessageService;    
         private readonly IDialogService _dialogService;
         private readonly IRagService _ragService;
+        // MCP Client 是单例服务，持有当前启动的 Server 子进程和 stdio 连接。
+        private readonly IMcpClientService _mcpClientService;
         private readonly IOptionsMonitor<AiOptions> _aiOptions;
 
         private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
@@ -43,9 +46,37 @@ namespace AiChatClient.ViewModels
         private CancellationTokenSource? _currentRequestCts;
         private string _currentInput = string.Empty; 
         private bool _isBusy;
+        private bool _isManagingConversation;
+        private CancellationTokenSource? _knowledgeImportCts;
+        private string _statusMessage = string.Empty;
+        public string StatusMessage
+        {
+            get => _statusMessage;
+            private set => SetProperty(ref _statusMessage, value);
+        }
+        public bool CanManageConversations => !IsBusy && !_isManagingConversation;
+        public IRelayCommand CancelKnowledgeImportCommand { get; }
+
+        private void RefreshConversationCommands()
+        {
+            OnPropertyChanged(nameof(CanManageConversations));
+            OnPropertyChanged(nameof(CanConfigureRequest));
+            OnPropertyChanged(nameof(IsConversationConfigurationEditable));
+            SendCommand?.NotifyCanExecuteChanged();
+            NewConversationCommand?.NotifyCanExecuteChanged();
+            DeleteConversationCommand?.NotifyCanExecuteChanged();
+            RenameConversationCommand?.NotifyCanExecuteChanged();
+            ClearCommand?.NotifyCanExecuteChanged();
+        }
         private bool _isImportingKnowledge;
         private bool _isRagEnabled;
         private bool _isToolsEnabled;
+        // MCP 区域的独立忙碌状态，不影响聊天区域的 IsBusy。
+        private bool _isMcpBusy;
+        private string _mcpConnectionStatus = "未连接";
+        private string _mcpServerDisplayName = "—";
+        private string _mcpResult = "连接 Server 后可以调用工具。";
+        private McpToolInfo? _selectedMcpTool;
         private readonly ObservableCollection<ChatMessage> _emptyMessages = new();
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
@@ -60,7 +91,7 @@ namespace AiChatClient.ViewModels
             IChatMessageService chatMessageService,
             IAIRoleService aIRoleService, IDialogService dialogService,
             ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions,
-            IRagService ragService)
+            IRagService ragService, IMcpClientService mcpClientService)
         {
             _chatService = chatService;
             _conversationService = conversationService;
@@ -68,19 +99,22 @@ namespace AiChatClient.ViewModels
             _chatMessageService = chatMessageService;
             _dialogService = dialogService;
             _ragService = ragService;
+            _mcpClientService = mcpClientService;
             _aiOptions = aiOptions;
             _logger = logger;
 
 
             Conversations = _conversationService.Conversations;
 
+            CancelKnowledgeImportCommand = new RelayCommand(
+                () => _knowledgeImportCts?.Cancel(), () => IsImportingKnowledge);
             // Commands
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
             StopCommand = new RelayCommand(Stop, () => IsBusy);
-            ClearCommand = new AsyncRelayCommand(ClearMessagesAsync, () => !IsBusy && Messages.Count > 0);
-            NewConversationCommand = new AsyncRelayCommand(NewConversation);
-            DeleteConversationCommand = new AsyncRelayCommand(DeleteConversation, () => CurrentConversation is not null);
-            RenameConversationCommand = new AsyncRelayCommand(RenameConversationAsync, () => CurrentConversation is not null);
+            ClearCommand = new AsyncRelayCommand(ClearMessagesAsync, () => CanManageConversations && CurrentConversation is not null && Messages.Count > 0);
+            NewConversationCommand = new AsyncRelayCommand(NewConversation, () => CanManageConversations);
+            DeleteConversationCommand = new AsyncRelayCommand(DeleteConversation, () => CanManageConversations && CurrentConversation is not null);
+            RenameConversationCommand = new AsyncRelayCommand(RenameConversationAsync, () => CanManageConversations && CurrentConversation is not null);
             AddKnowledgeFileCommand = new AsyncRelayCommand(
                 AddKnowledgeFileAsync,
                 () => !IsImportingKnowledge);
@@ -90,11 +124,79 @@ namespace AiChatClient.ViewModels
             DeleteKnowledgeFileCommand = new AsyncRelayCommand<KnowledgeFileItem>(
                 DeleteKnowledgeFileAsync,
                 CanManageKnowledgeFile);
+            ConnectMcpCommand = new AsyncRelayCommand(
+                ConnectMcpAsync,
+                () => !IsMcpBusy && !IsMcpConnected);
+            DisconnectMcpCommand = new AsyncRelayCommand(
+                DisconnectMcpAsync,
+                () => !IsMcpBusy && IsMcpConnected);
+            CallMcpToolCommand = new AsyncRelayCommand(
+                CallMcpToolAsync,
+                () => !IsMcpBusy && IsMcpConnected && SelectedMcpTool is not null);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
 
         public ObservableCollection<KnowledgeFileItem> KnowledgeFiles { get; } = new();
+
+        /// <summary>
+        /// MCP Server 通过 tools/list 返回的 Tool，供右侧列表绑定。
+        /// </summary>
+        public ObservableCollection<McpToolInfo> McpTools { get; } = new();
+
+        public string McpConnectionStatus
+        {
+            get => _mcpConnectionStatus;
+            private set => SetProperty(ref _mcpConnectionStatus, value);
+        }
+
+        public string McpServerDisplayName
+        {
+            get => _mcpServerDisplayName;
+            private set => SetProperty(ref _mcpServerDisplayName, value);
+        }
+
+        public string McpResult
+        {
+            get => _mcpResult;
+            private set => SetProperty(ref _mcpResult, value);
+        }
+
+        public McpToolInfo? SelectedMcpTool
+        {
+            get => _selectedMcpTool;
+            set
+            {
+                if (SetProperty(ref _selectedMcpTool, value))
+                {
+                    CallMcpToolCommand.NotifyCanExecuteChanged();
+                }
+            }
+        }
+
+        public bool IsMcpBusy
+        {
+            get => _isMcpBusy;
+            private set
+            {
+                if (SetProperty(ref _isMcpBusy, value))
+                {
+                    RefreshMcpCommandStates();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 根据 Client 服务的真实状态判断是否已经完成 MCP 初始化。
+        /// </summary>
+        public bool IsMcpConnected =>
+            _mcpClientService.State == McpConnectionState.Connected;
+
+        public IAsyncRelayCommand ConnectMcpCommand { get; }
+
+        public IAsyncRelayCommand DisconnectMcpCommand { get; }
+
+        public IAsyncRelayCommand CallMcpToolCommand { get; }
 
         /// <summary>
         /// 从 appsettings.json 的 AI:Providers 节点加载的服务厂家列表。
@@ -135,6 +237,7 @@ namespace AiChatClient.ViewModels
                 }
 
                 SelectedAIModel = AIModels.FirstOrDefault();
+                SendCommand?.NotifyCanExecuteChanged();
             }
         }
 
@@ -156,6 +259,7 @@ namespace AiChatClient.ViewModels
                     return;
                 }
 
+                SendCommand?.NotifyCanExecuteChanged();
                 if (_isSynchronizingAIConfiguration || CurrentConversation is null)
                 {
                     return;
@@ -179,7 +283,14 @@ namespace AiChatClient.ViewModels
             get => _currentConversation;
             set
             {
-                if (SetProperty(ref _currentConversation, value))
+                if (!CanManageConversations) return;
+                SetCurrentConversation(value);
+            }
+        }
+
+        private void SetCurrentConversation(Conversation? value)
+        {
+                if (SetProperty(ref _currentConversation, value, nameof(CurrentConversation)))
                 {
                     // notify that Messages changed
                     OnPropertyChanged(nameof(Messages));
@@ -193,8 +304,9 @@ namespace AiChatClient.ViewModels
                     ClearCommand?.NotifyCanExecuteChanged();
                     DeleteConversationCommand?.NotifyCanExecuteChanged();
                     RenameConversationCommand?.NotifyCanExecuteChanged();
+                    SendCommand?.NotifyCanExecuteChanged();
+                    StatusMessage = value is null ? "暂无会话，请先新建会话。" : string.Empty;
                 }
-            }
         }
 
         public double? Temperature
@@ -203,7 +315,7 @@ namespace AiChatClient.ViewModels
             set
             {
                 var conversation = CurrentConversation;
-                if (conversation is null)
+                if (!CanManageConversations || conversation is null)
                 {
                     return;
                 }
@@ -244,7 +356,7 @@ namespace AiChatClient.ViewModels
             set
             {
                 var conversation = CurrentConversation;
-                if (conversation is null)
+                if (!CanManageConversations || conversation is null)
                 {
                     return;
                 }
@@ -285,7 +397,7 @@ namespace AiChatClient.ViewModels
             set
             {
                 var conversation = CurrentConversation;
-                if (conversation is null)
+                if (!CanManageConversations || conversation is null)
                 {
                     return;
                 }
@@ -603,7 +715,7 @@ namespace AiChatClient.ViewModels
         /// </summary>
         public bool IsConversationConfigurationEditable
         {
-            get => _isConversationConfigurationEditable;
+            get => _isConversationConfigurationEditable && CanManageConversations;
             private set => SetProperty(ref _isConversationConfigurationEditable, value);
         }
         /// <summary>
@@ -738,12 +850,12 @@ namespace AiChatClient.ViewModels
                     SendCommand.NotifyCanExecuteChanged();
                     StopCommand.NotifyCanExecuteChanged();
                     ClearCommand.NotifyCanExecuteChanged();
-                    OnPropertyChanged(nameof(CanConfigureRequest));
+                    RefreshConversationCommands();
                 }
             }
         }
 
-        public bool CanConfigureRequest => !IsBusy;
+        public bool CanConfigureRequest => CanManageConversations;
 
         public bool IsRagEnabled
         {
@@ -764,6 +876,7 @@ namespace AiChatClient.ViewModels
             {
                 if (SetProperty(ref _isImportingKnowledge, value))
                 {
+                    CancelKnowledgeImportCommand.NotifyCanExecuteChanged();
                     AddKnowledgeFileCommand.NotifyCanExecuteChanged();
                     RebuildKnowledgeFileCommand.NotifyCanExecuteChanged();
                     DeleteKnowledgeFileCommand.NotifyCanExecuteChanged();
@@ -783,169 +896,270 @@ namespace AiChatClient.ViewModels
 
         public IAsyncRelayCommand<KnowledgeFileItem> DeleteKnowledgeFileCommand { get; }
 
-        private bool CanSend()
+        /// <summary>
+        /// 响应“连接”：启动 Server、完成 initialize，然后立即执行 tools/list。
+        /// </summary>
+        private async Task ConnectMcpAsync()
         {
-            return !IsBusy && !string.IsNullOrWhiteSpace(CurrentInput);
-        }
+            if (IsMcpBusy || IsMcpConnected) return;
+            IsMcpBusy = true;
+            McpConnectionStatus = "正在连接…";
+            McpServerDisplayName = "—";
+            McpResult = "正在启动本地 MCP Server…";
+            McpTools.Clear();
+            SelectedMcpTool = null;
 
-        private async Task SendAsync()
-        {
-            var input = CurrentInput.Trim();
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                return;
-            }
-            var enableRag = IsRagEnabled;
-            var enableTools = IsToolsEnabled;
-
-            // ensure system prompt from the selected role is present at the beginning of the conversation
-            if (CurrentConversation is not null && CurrentConversation.Role is not null)
-            {
-                var hasSystem = CurrentConversation.Messages.Any(m => m.Role == ChatRole.System);
-                if (!hasSystem && !string.IsNullOrWhiteSpace(CurrentConversation.Role.SystemPrompt))
-                {
-                    var systemMsg = new ChatMessage(ChatRole.System, CurrentConversation.Role.SystemPrompt, DateTime.Now);
-                    CurrentConversation.Messages.Insert(0, systemMsg);
-                    await _chatMessageService.AddMessageAsync(CurrentConversation.Id, systemMsg);
-                }
-            }
-
-            var userMessage =  AddMessage(ChatRole.User, input);
-            await _chatMessageService.AddMessageAsync(CurrentConversation.Id, userMessage);
-            CurrentInput = string.Empty;
-            IsBusy = true;
-            ChatMessage chatMessage = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now)
-            {
-                IsTransient = true
-            };
-            _currentRequestCts = new CancellationTokenSource();
             try
             {
-                IReadOnlyList<VectorSearchResult> ragResults = Array.Empty<VectorSearchResult>();
-                if (enableRag)
+                // 协议握手和 Tool 发现分成两个调用，便于观察 MCP 的两个阶段。
+                await _mcpClientService.ConnectAsync();
+                var tools = await _mcpClientService.ListToolsAsync();
+                foreach (var tool in tools)
                 {
-                    try
-                    {
-                        ragResults = await _ragService.RetrieveAsync(
-                            input,
-                            _currentRequestCts.Token);
-                    }
-                    catch (Exception exception) when (exception is not OperationCanceledException)
-                    {
-                        // RAG is an enhancement. Embedding/retrieval failure must not disable normal chat.
-                        _logger.LogWarning(
-                            exception,
-                            "RAG retrieval failed; falling back to normal chat. UserInput: {UserInput}",
-                            input);
-                    }
+                    McpTools.Add(tool);
                 }
 
-                IReadOnlyList<ChatRequestMessage> requestMessages = Messages
-                    .Where(message => !message.IsTransient)
-                    .Where(message => message.Sources.Count == 0
-                        || message.Sources.All(source =>
-                            _ragService.IsDocumentIndexed(source.SourcePath)))
-                    .Select(message => new ChatRequestMessage
-                    {
-                        Role = message.Role,
-                        Content = message.Content
-                    })
-                    .ToArray();
-
-                if (enableRag)
-                {
-                    requestMessages = RagPromptComposer.AddContextToLatestUserMessage(
-                        requestMessages,
-                        input,
-                        ragResults);
-                }
-                Messages.Add(chatMessage);
-                var selectedModelId = SelectedAIModel?.ModelId ?? string.Empty;
-                if (!string.Equals(
-                        CurrentConversation.Model,
-                        selectedModelId,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning(
-                        "Conversation model '{ConversationModel}' differed from visible selection '{SelectedModel}'. The visible selection will be used.",
-                        CurrentConversation.Model,
-                        selectedModelId);
-                }
-
-                var request = new ChatRequest
-                {
-                    Messages = requestMessages,
-                    Provider = SelectedAIProvider?.Name ?? string.Empty,
-                    Model = selectedModelId,
-                    Settings = new GenerationSettings
-                    {
-                        Temperature = CurrentConversation?.GenerationSettings?.Temperature,
-                        MaxTokens = CurrentConversation?.GenerationSettings?.MaxTokens,
-                        TopP = CurrentConversation?.GenerationSettings?.TopP
-                    },
-                    EnableTools = enableTools,
-                    RequireToolCall = enableTools
-                        && ToolIntentDetector.RequiresToolCall(input)
-                };
-
-                _logger.LogInformation(
-                    "Sending chat request. Provider: {Provider}; Model: {Model}; RAG: {EnableRag}; Tools: {EnableTools}.",
-                    request.Provider,
-                    request.Model,
-                    enableRag,
-                    enableTools);
-
-                var isDisplayingToolStatus = false;
-                await foreach (var streamEvent in _chatService.SendStreamingAsync(request, _currentRequestCts.Token))
-                {
-                    switch (streamEvent.Type)
-                    {
-                        case ChatStreamEventType.ToolCalling:
-                            chatMessage.Content = $"正在调用工具：{streamEvent.ToolName}…";
-                            isDisplayingToolStatus = true;
-                            break;
-
-                        case ChatStreamEventType.TextDelta:
-                            if (isDisplayingToolStatus)
-                            {
-                                chatMessage.Content = string.Empty;
-                                isDisplayingToolStatus = false;
-                            }
-
-                            chatMessage.Content += streamEvent.Content;
-                            break;
-                    }
-                }
-                chatMessage.Sources = ragResults
-                    .Select(result => new RagSourceReference(
-                        result.Chunk.FileName,
-                        result.Chunk.SourcePath,
-                        result.Chunk.HeadingPath,
-                        result.Chunk.StartLine,
-                        result.Chunk.EndLine,
-                        result.Score))
-                    .ToArray();
-                chatMessage.RagWasEnabled = enableRag;
-                // save the assistant message to the database
-                if (CurrentConversation is not null)
-                {
-                    chatMessage.IsTransient = false;
-                    await _chatMessageService.AddMessageAsync(CurrentConversation.Id, chatMessage);
-                }
+                SelectedMcpTool = McpTools.FirstOrDefault();
+                var serverInfo = _mcpClientService.ServerInfo;
+                McpServerDisplayName = serverInfo is null
+                    ? "未知 Server"
+                    : $"{serverInfo.Name}  v{serverInfo.Version}";
+                McpConnectionStatus = "已连接";
+                McpResult = McpTools.Count == 0
+                    ? "Server 没有提供 Tool。"
+                    : "请选择 Tool 并点击调用。";
             }
-            catch (OperationCanceledException)
+            catch (Exception exception)
             {
-                chatMessage.Content = "已停止生成。";
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send message to AI service. UserInput: {UserInput}", input);
-                chatMessage.Content = "AI 响应生成失败，请稍后重试。";
+                _logger.LogError(exception, "连接 MCP Server 失败。");
+                try
+                {
+                    await _mcpClientService.DisconnectAsync();
+                }
+                catch (Exception disconnectException)
+                {
+                    _logger.LogWarning(disconnectException, "清理 MCP Server 连接失败。");
+                }
 
+                McpConnectionStatus = "连接失败";
+                McpServerDisplayName = "—";
+                McpResult = exception.Message;
+                McpTools.Clear();
+                SelectedMcpTool = null;
             }
             finally
             {
-                _currentRequestCts?.Dispose();
+                IsMcpBusy = false;
+                OnPropertyChanged(nameof(IsMcpConnected));
+                RefreshMcpCommandStates();
+            }
+        }
+
+        /// <summary>
+        /// 响应“断开”：关闭 MCP 连接，并清空只对本次连接有效的 UI 数据。
+        /// </summary>
+        private async Task DisconnectMcpAsync()
+        {
+            if (IsMcpBusy || !IsMcpConnected) return;
+            IsMcpBusy = true;
+            McpConnectionStatus = "正在断开…";
+
+            try
+            {
+                await _mcpClientService.DisconnectAsync();
+                McpConnectionStatus = "未连接";
+                McpServerDisplayName = "—";
+                McpResult = "连接 Server 后可以调用工具。";
+                McpTools.Clear();
+                SelectedMcpTool = null;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "断开 MCP Server 失败。");
+                McpConnectionStatus = "断开失败";
+                McpResult = exception.Message;
+            }
+            finally
+            {
+                IsMcpBusy = false;
+                OnPropertyChanged(nameof(IsMcpConnected));
+                RefreshMcpCommandStates();
+            }
+        }
+
+        /// <summary>
+        /// 响应“调用选中 Tool”，把 tools/call 的文本结果显示到页面。
+        /// </summary>
+        private async Task CallMcpToolAsync()
+        {
+            if (IsMcpBusy || !IsMcpConnected) return;
+            var tool = SelectedMcpTool;
+            if (tool is null)
+            {
+                return;
+            }
+
+            IsMcpBusy = true;
+            McpResult = $"正在调用 {tool.Name}…";
+            try
+            {
+                McpResult = await _mcpClientService.CallToolAsync(tool.Name);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "调用 MCP Tool {ToolName} 失败。", tool.Name);
+                McpResult = exception.Message;
+                if (!IsMcpConnected)
+                {
+                    McpConnectionStatus = "连接已断开";
+                    McpServerDisplayName = "—";
+                    McpTools.Clear();
+                    SelectedMcpTool = null;
+                }
+            }
+            finally
+            {
+                IsMcpBusy = false;
+                OnPropertyChanged(nameof(IsMcpConnected));
+                RefreshMcpCommandStates();
+            }
+        }
+
+        /// <summary>
+        /// 连接状态或忙碌状态改变后，重新计算三个 MCP 按钮能否点击。
+        /// </summary>
+        private void RefreshMcpCommandStates()
+        {
+            ConnectMcpCommand.NotifyCanExecuteChanged();
+            DisconnectMcpCommand.NotifyCanExecuteChanged();
+            CallMcpToolCommand.NotifyCanExecuteChanged();
+        }
+
+        private bool CanSend() => CanManageConversations
+            && CurrentConversation is not null
+            && SelectedAIProvider is not null
+            && AIProviderNames.IsSupported(SelectedAIProvider.Name)
+            && SelectedAIModel is { IsEnabled: true }
+            && AIModels.Contains(SelectedAIModel)
+            && !string.IsNullOrWhiteSpace(SelectedAIModel.ModelId)
+            && !string.IsNullOrWhiteSpace(CurrentInput);
+
+        private async Task SendAsync()
+        {
+            if (!CanSend()) return;
+            var conversation = CurrentConversation!;
+            var input = CurrentInput.Trim();
+            var provider = SelectedAIProvider!.Name;
+            var model = SelectedAIModel!.ModelId;
+            var settings = CloneGenerationSettings(conversation.GenerationSettings);
+            var rolePrompt = conversation.Role?.SystemPrompt;
+            var enableRag = IsRagEnabled;
+            var enableTools = IsToolsEnabled;
+            using var requestCts = new CancellationTokenSource();
+            _currentRequestCts = requestCts;
+            IsBusy = true;
+            StatusMessage = string.Empty;
+            ChatMessage? answer = null;
+            var phase = "保存消息";
+            try
+            {
+                var history = conversation.Messages.Where(message => !message.IsTransient)
+                    .Where(message => message.Sources.Count == 0 || message.Sources.All(
+                        source => _ragService.IsDocumentIndexed(source.SourcePath)))
+                    .Select(message => new ChatRequestMessage { Role = message.Role, Content = message.Content })
+                    .ToList();
+                if (!history.Any(message => message.Role == ChatRole.System)
+                    && !string.IsNullOrWhiteSpace(rolePrompt))
+                {
+                    var system = new ChatMessage(ChatRole.System, rolePrompt, DateTime.Now);
+                    await _chatMessageService.AddMessageAsync(conversation.Id, system);
+                    conversation.Messages.Insert(0, system);
+                    history.Insert(0, new ChatRequestMessage { Role = system.Role, Content = system.Content });
+                }
+                requestCts.Token.ThrowIfCancellationRequested();
+                var user = new ChatMessage(ChatRole.User, input, DateTime.Now);
+                await _chatMessageService.AddMessageAsync(conversation.Id, user);
+                conversation.Messages.Add(user);
+                history.Add(new ChatRequestMessage { Role = user.Role, Content = input });
+                if (CurrentInput.Trim() == input) CurrentInput = string.Empty;
+                requestCts.Token.ThrowIfCancellationRequested();
+
+                phase = "生成回答";
+                IReadOnlyList<VectorSearchResult> results = Array.Empty<VectorSearchResult>();
+                if (enableRag)
+                {
+                    if (!KnowledgeFiles.Any(item => _ragService.IsDocumentIndexed(item.SourcePath)))
+                        StatusMessage = "知识库未导入有效文档，本次使用普通聊天。";
+                    else
+                    {
+                        try
+                        {
+                            results = await _ragService.RetrieveAsync(input, requestCts.Token);
+                            StatusMessage = results.Count == 0
+                                ? "未找到匹配资料，本次使用普通聊天。"
+                                : $"本次检索到 {results.Count} 条参考资料。";
+                        }
+                        catch (Exception ex) when (!requestCts.IsCancellationRequested)
+                        {
+                            _logger.LogWarning(ex, "Knowledge retrieval failed.");
+                            StatusMessage = ex is TimeoutException
+                                ? "知识库检索超时，本次使用普通聊天。"
+                                : "知识库检索失败，本次使用普通聊天。";
+                        }
+                    }
+                }
+                requestCts.Token.ThrowIfCancellationRequested();
+                var request = new ChatRequest
+                {
+                    Messages = enableRag ? RagPromptComposer.AddContextToLatestUserMessage(history, input, results) : history,
+                    Provider = provider, Model = model, Settings = settings,
+                    EnableTools = enableTools,
+                    RequireToolCall = enableTools && ToolIntentDetector.RequiresToolCall(input)
+                };
+                answer = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now) { IsTransient = true };
+                conversation.Messages.Add(answer);
+                var displayingTool = false;
+                await foreach (var ev in _chatService.SendStreamingAsync(request, requestCts.Token))
+                {
+                    if (ev.Type == ChatStreamEventType.ToolCalling)
+                    {
+                        answer.Content = $"正在调用工具：{ev.ToolName}…";
+                        displayingTool = true;
+                    }
+                    else if (ev.Type == ChatStreamEventType.TextDelta)
+                    {
+                        if (displayingTool) { answer.Content = string.Empty; displayingTool = false; }
+                        answer.Content += ev.Content;
+                    }
+                }
+                requestCts.Token.ThrowIfCancellationRequested();
+                if (displayingTool || string.IsNullOrWhiteSpace(answer.Content))
+                    throw new InvalidOperationException("模型未返回有效回答，请重试或更换模型。");
+                answer.Sources = results.Select(result => new RagSourceReference(
+                    result.Chunk.FileName, result.Chunk.SourcePath, result.Chunk.HeadingPath,
+                    result.Chunk.StartLine, result.Chunk.EndLine, result.Score)).ToArray();
+                answer.RagWasEnabled = enableRag;
+                phase = "保存回答";
+                await _chatMessageService.AddMessageAsync(conversation.Id, answer);
+                answer.IsTransient = false;
+            }
+            catch (OperationCanceledException) when (requestCts.IsCancellationRequested)
+            {
+                StatusMessage = "已停止生成，可继续发送。";
+                if (answer is not null) answer.Content += "\n\n（已停止，未保存）";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Chat operation failed during {Phase}.", phase);
+                StatusMessage = $"{phase}失败：{ex.Message}";
+                if (answer is not null)
+                    answer.Content += phase == "保存回答" ? "\n\n（回答未保存）" : "\n\n（生成失败，未保存）";
+                _dialogService.ShowError($"{phase}失败", phase == "保存回答"
+                    ? "回答仍显示在页面，但未保存，也不会作为后续对话历史。\n" + ex.Message
+                    : ex.Message);
+            }
+            finally
+            {
                 _currentRequestCts = null;
                 IsBusy = false;
             }
@@ -958,6 +1172,9 @@ namespace AiChatClient.ViewModels
 
         private async Task AddKnowledgeFileAsync()
         {
+            if (IsImportingKnowledge) return;
+            try
+            {
             var filePath = _dialogService.ShowMarkdownFileDialog();
             if (string.IsNullOrWhiteSpace(filePath))
             {
@@ -977,22 +1194,29 @@ namespace AiChatClient.ViewModels
             }
 
             await VectorizeKnowledgeFileAsync(item);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Selecting knowledge file failed.");
+                _dialogService.ShowError("添加知识文件失败", ex.Message);
+            }
         }
 
-        private bool CanManageKnowledgeFile(KnowledgeFileItem? item)
+        private bool CanManageKnowledgeFile([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] KnowledgeFileItem? item)
         {
             return item is not null && !IsImportingKnowledge && !item.IsProcessing;
         }
 
         private Task RebuildKnowledgeFileAsync(KnowledgeFileItem? item)
         {
-            return item is null
+            return !CanManageKnowledgeFile(item)
                 ? Task.CompletedTask
                 : VectorizeKnowledgeFileAsync(item);
         }
 
         private async Task VectorizeKnowledgeFileAsync(KnowledgeFileItem item)
         {
+            if (!CanManageKnowledgeFile(item)) return;
             var hadVectors = item.IsVectorized;
             if (!File.Exists(item.SourcePath))
             {
@@ -1005,15 +1229,22 @@ namespace AiChatClient.ViewModels
             item.Status = hadVectors
                 ? "正在重新向量化…"
                 : "正在读取并向量化…";
+            using var importCts = new CancellationTokenSource();
+            _knowledgeImportCts = importCts;
             item.IsProcessing = true;
             IsImportingKnowledge = true;
 
             try
             {
-                var result = await _ragService.ReplaceDocumentAsync(item.SourcePath);
+                var result = await _ragService.ReplaceDocumentAsync(item.SourcePath, importCts.Token);
                 item.ChunkCount = result.ChunkCount;
                 item.IsVectorized = true;
                 item.Status = "已向量化";
+            }
+            catch (OperationCanceledException) when (importCts.IsCancellationRequested)
+            {
+                item.IsVectorized = hadVectors;
+                item.Status = hadVectors ? "已取消（保留原向量）" : "已取消";
             }
             catch (Exception exception)
             {
@@ -1023,11 +1254,12 @@ namespace AiChatClient.ViewModels
                     item.SourcePath);
                 item.IsVectorized = hadVectors;
                 item.Status = hadVectors
-                    ? "更新失败（保留原向量）"
+                    ? $"更新失败（保留原向量）：{exception.Message}"
                     : $"失败：{exception.Message}";
             }
             finally
             {
+                _knowledgeImportCts = null;
                 item.IsProcessing = false;
                 IsImportingKnowledge = false;
             }
@@ -1035,7 +1267,7 @@ namespace AiChatClient.ViewModels
 
         private Task DeleteKnowledgeFileAsync(KnowledgeFileItem? item)
         {
-            if (item is null)
+            if (!CanManageKnowledgeFile(item))
             {
                 return Task.CompletedTask;
             }
@@ -1059,6 +1291,7 @@ namespace AiChatClient.ViewModels
             }
             finally
             {
+                _knowledgeImportCts = null;
                 item.IsProcessing = false;
                 IsImportingKnowledge = false;
             }
@@ -1069,91 +1302,72 @@ namespace AiChatClient.ViewModels
         /// <summary>
         /// 删除当前会话的全部消息，并在数据库删除成功后同步清空页面消息列表。
         /// </summary>
-        private async Task ClearMessagesAsync()
+        private async Task RunConversationOperationAsync(string title, Func<Task> operation)
+        {
+            if (!CanManageConversations) return;
+            _isManagingConversation = true;
+            RefreshConversationCommands();
+            try { await operation(); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Conversation operation failed: {Operation}", title);
+                StatusMessage = $"{title}失败：{ex.Message}";
+                _dialogService.ShowError($"{title}失败", ex.Message);
+            }
+            finally
+            {
+                _isManagingConversation = false;
+                RefreshConversationCommands();
+            }
+        }
+
+        private Task ClearMessagesAsync()
         {
             var conversation = CurrentConversation;
-
-            if (conversation is null)
+            if (conversation is null) return Task.CompletedTask;
+            return RunConversationOperationAsync("清空会话", async () =>
             {
-                return;
-            }
-
-            await _chatMessageService
-                .DeleteMessagesByConversationIdAsync(conversation.Id);
-
-            conversation.Messages.Clear();
-            ClearCommand.NotifyCanExecuteChanged();
+                await _chatMessageService.DeleteMessagesByConversationIdAsync(conversation.Id);
+                conversation.Messages.Clear();
+                StatusMessage = "已清空会话。";
+            });
         }
 
-        private ChatMessage AddMessage(ChatRole role, string content)
-        {
-            var msg = new ChatMessage(role, content, DateTime.Now);
-            if (CurrentConversation is not null)
-            {
-                CurrentConversation.Messages.Add(msg);
-            }
-            else
-            {
-                // fallback
-                _emptyMessages.Add(msg);
-            }
-            ClearCommand.NotifyCanExecuteChanged();
-            return msg;
-        }
-
-        private async Task NewConversation()
+        private Task NewConversation() => RunConversationOperationAsync("新建会话", async () =>
         {
             var conversation = new Conversation
             {
-                Id = Guid.NewGuid(),
-
-                Title = "New Chat",
-
-                CreatedTime = DateTime.Now,
-
-                UpdatedTime = DateTime.Now,
-
-                Model = SelectedAIModel?.ModelId ?? string.Empty,
-
+                Id = Guid.NewGuid(), Title = "New Chat", CreatedTime = DateTime.Now,
+                UpdatedTime = DateTime.Now, Model = SelectedAIModel?.ModelId ?? string.Empty,
                 Role = SelectedRole
             };
+            var result = await _conversationService.CreateConversation(conversation);
+            SetCurrentConversation(result);
+        });
 
-
-            var result =
-                await _conversationService.CreateConversation(conversation);
-
-
-            CurrentConversation = result;
-        }
-        private async Task DeleteConversation()
+        private Task DeleteConversation()
         {
-            if (CurrentConversation is null) return;
-            var id = CurrentConversation.Id;
-            await _conversationService.DeleteConversationAsync(id);
-            // pick another conversation if any
-            CurrentConversation = Conversations.FirstOrDefault();
+            var conversation = CurrentConversation;
+            if (conversation is null) return Task.CompletedTask;
+            return RunConversationOperationAsync("删除会话", async () =>
+            {
+                await _conversationService.DeleteConversationAsync(conversation.Id);
+                SetCurrentConversation(Conversations.FirstOrDefault());
+            });
         }
 
-        /// <summary>
-        /// 重命名当前会话：通过对话框服务获取新名称，再交给服务层处理。
-        /// </summary>
-        private async Task RenameConversationAsync()
+        private Task RenameConversationAsync()
         {
-            if (CurrentConversation is null) return;
-
-            var newTitle = _dialogService.ShowInputDialog(
-                "重命名会话",
-                "请输入新的会话名称:",
-                CurrentConversation.Title);
-
-            if (string.IsNullOrWhiteSpace(newTitle)) return;
-
-            var trimmedTitle = newTitle.Trim();
-
-            // 名称未变化时无需处理
-            if (trimmedTitle == CurrentConversation.Title) return;
-
-            await _conversationService.RenameConversationAsync(CurrentConversation.Id, trimmedTitle);
+            var conversation = CurrentConversation;
+            if (conversation is null) return Task.CompletedTask;
+            return RunConversationOperationAsync("重命名会话", async () =>
+            {
+                var title = _dialogService.ShowInputDialog("重命名会话", "请输入新的会话名称:", conversation.Title)?.Trim();
+                if (string.IsNullOrWhiteSpace(title) || title == conversation.Title) return;
+                if (!await _conversationService.RenameConversationAsync(conversation.Id, title))
+                    throw new InvalidOperationException("会话不存在，请重新选择。");
+                StatusMessage = "会话已重命名。";
+            });
         }
     }
 }

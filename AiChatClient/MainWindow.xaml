@@ -7,10 +7,10 @@
         xmlns:system="clr-namespace:System.Windows;assembly=PresentationFramework"
         xmlns:views="clr-namespace:AiChatClient.Views"
         Title="AI Chat"
-        Width="1200"
-        Height="800"
-        MinWidth="960"
-        MinHeight="620"
+        Width="1460"
+        Height="840"
+        MinWidth="1180"
+        MinHeight="680"
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResize"
@@ -329,6 +329,7 @@
                     <ColumnDefinition Width="252" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="238" />
+                    <ColumnDefinition Width="280" />
                 </Grid.ColumnDefinitions>
 
                 <!--  Navigation: conversation management lives here.  -->
@@ -358,6 +359,7 @@
                                 Content="＋  新会话"
                                 Style="{StaticResource SidebarPrimaryButton}" />
                         <ListBox Grid.Row="2"
+                                 IsEnabled="{Binding CanManageConversations}"
                                  DisplayMemberPath="Title"
                                  ItemContainerStyle="{StaticResource ConversationItemStyle}"
                                  ItemsSource="{Binding Conversations}"
@@ -387,6 +389,9 @@
                                            Foreground="#9EBFC2"
                                            Text="正在处理文件…"
                                            Visibility="{Binding IsImportingKnowledge, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button Content="取消导入" Command="{Binding CancelKnowledgeImportCommand}"
+                                        Style="{StaticResource SidebarButton}"
+                                        Visibility="{Binding IsImportingKnowledge, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                 <ItemsControl MaxHeight="150"
                                               ItemsSource="{Binding KnowledgeFiles}">
                                     <ItemsControl.Template>
@@ -497,7 +502,11 @@
                             BorderBrush="#E0EAEC"
                             BorderThickness="1"
                             CornerRadius="9">
-                        <views:ChatTranscriptView Messages="{Binding Messages}" />
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="{Binding StatusMessage}"
+                                       Margin="10,6" TextWrapping="Wrap" Foreground="#835900" />
+                            <views:ChatTranscriptView Messages="{Binding Messages}" />
+                        </DockPanel>
                     </Border>
 
                     <Border Grid.Row="2"
@@ -570,7 +579,7 @@
                         Background="White"
                         BorderBrush="#E0EAEC"
                         BorderThickness="1,0,0,0"
-                        CornerRadius="0,0,9,0">
+                        CornerRadius="0">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -699,6 +708,135 @@
                                            TextWrapping="Wrap" />
                             </Border>
                         </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!--  MCP inspector: manual connection, discovery and invocation.  -->
+                <Border Grid.Column="3"
+                        Padding="18,18,18,16"
+                        Background="#F8FBFB"
+                        BorderBrush="#E0EAEC"
+                        BorderThickness="1,0,0,0"
+                        CornerRadius="0,0,9,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0">
+                            <TextBlock Style="{StaticResource SectionText}"
+                                       Text="MCP 能力" />
+                            <TextBlock Margin="0,4,0,16"
+                                       Style="{StaticResource CaptionText}"
+                                       Text="连接本地 Server 并手动调用 Tool"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <!-- initialize 完成后显示 Server 身份和当前连接状态。 -->
+                        <Border Grid.Row="1"
+                                Padding="11"
+                                Background="White"
+                                BorderBrush="#DCE8EA"
+                                BorderThickness="1"
+                                CornerRadius="7">
+                            <StackPanel>
+                                <Grid>
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Text="连接状态" />
+                                    <TextBlock HorizontalAlignment="Right"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="#3B7D83"
+                                               Text="{Binding McpConnectionStatus}" />
+                                </Grid>
+                                <TextBlock Margin="0,7,0,0"
+                                           FontSize="12"
+                                           Foreground="#365B63"
+                                           Text="{Binding McpServerDisplayName}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding McpServerDisplayName}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 本期采用手动连接，便于观察 MCP 连接的完整生命周期。 -->
+                        <Grid Grid.Row="2" Margin="0,12,0,18">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Command="{Binding ConnectMcpCommand}"
+                                    Content="连接"
+                                    Style="{StaticResource PrimaryButton}" />
+                            <Button Grid.Column="2"
+                                    Command="{Binding DisconnectMcpCommand}"
+                                    Content="断开"
+                                    Style="{StaticResource SecondaryButton}" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="3"
+                                   Margin="0,0,0,7"
+                                   Style="{StaticResource CaptionText}"
+                                   Text="可用 Tools" />
+
+                        <!-- 连接成功后，ViewModel 把 tools/list 的结果填入这里。 -->
+                        <Border Grid.Row="4"
+                                Background="White"
+                                BorderBrush="#DCE8EA"
+                                BorderThickness="1"
+                                CornerRadius="7">
+                            <ListBox Padding="5"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     ItemsSource="{Binding McpTools}"
+                                     SelectedItem="{Binding SelectedMcpTool, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="5,4">
+                                            <TextBlock FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#274850"
+                                                       Text="{Binding Name}" />
+                                            <TextBlock Margin="0,3,0,0"
+                                                       FontSize="11"
+                                                       Foreground="#788F96"
+                                                       Text="{Binding Description}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
+
+                        <!-- 当前示例 Tool 没有参数，因此选中后可以直接调用。 -->
+                        <Button Grid.Row="5"
+                                Margin="0,12,0,0"
+                                Command="{Binding CallMcpToolCommand}"
+                                Content="调用选中 Tool"
+                                Style="{StaticResource PrimaryButton}" />
+
+                        <!-- tools/call 返回的第一段 text content 显示在结果区。 -->
+                        <Border Grid.Row="6"
+                                Margin="0,12,0,0"
+                                Padding="11"
+                                Background="#EDF5F5"
+                                CornerRadius="7">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource CaptionText}"
+                                           Text="调用结果" />
+                                <TextBlock Margin="0,7,0,0"
+                                           FontSize="12"
+                                           Foreground="#365B63"
+                                           Text="{Binding McpResult}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>

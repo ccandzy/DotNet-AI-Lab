@@ -35,6 +35,15 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.1343.22" />
   </ItemGroup>
 
+  <!--
+    只建立构建顺序，不把 Console 项目当作 WPF 的代码引用。
+    MCP Server 仍然是一个需要独立启动的进程。
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\AiChatClient.McpServer\AiChatClient.McpServer.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -46,5 +55,18 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!--
+    MCP Client 从应用输出目录的 mcp-server 子目录启动 Server。
+    因此构建 WPF 后，把 Server 的 exe、dll 和运行时配置一起复制过去。
+  -->
+  <Target Name="CopyMcpServerOutput" AfterTargets="Build">
+    <ItemGroup>
+      <McpServerOutput Include="..\AiChatClient.McpServer\bin\$(Configuration)\net8.0\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(McpServerOutput)"
+          DestinationFiles="@(McpServerOutput->'$(OutDir)mcp-server\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

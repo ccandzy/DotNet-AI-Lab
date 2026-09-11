@@ -4,6 +4,7 @@
     /// 瀵硅瘽妗嗘湇鍔℃娊璞°€?    /// ViewModel 閫氳繃璇ユ娊璞¤姹傜敤鎴疯緭鍏ワ紝淇濇寔涓庡叿浣?View 瑙ｈ€︺€佸彲娴嬭瘯銆?    /// </summary>
     public interface IDialogService
     {
+        void ShowError(string title, string message);
         /// <summary>
         /// 寮瑰嚭杈撳叆瀵硅瘽妗嗐€?        /// </summary>
         /// <param name="title">绐楀彛鏍囬銆?/param>

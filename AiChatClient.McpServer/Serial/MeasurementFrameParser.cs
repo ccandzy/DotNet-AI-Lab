@@ -31,10 +31,15 @@ internal sealed class MeasurementFrameParser
                     TryReadSignedBigEndian(frame[9], frame[10], frame[11], out var flow)
                     ? (Success: true, Flow: flow, Pressure: (int?)null)
                     : default,
-                (>= LegacyFrameLength, StartMeasurementAddress) =>
+                (LegacyFrameLength, StartMeasurementAddress) =>
                     TryReadSignedBigEndian(frame[14], frame[15], frame[16], out var flow)
                     && TryReadSignedBigEndian(frame[17], frame[18], frame[19], out var pressure)
                     ? (Success: true, Flow: flow, Pressure: (int?)pressure)
+                    : default,
+                (> LegacyFrameLength, StartMeasurementAddress) =>
+                    TryReadSignedBigEndian(frame[9], frame[10], frame[11], out var flow)
+                    ? (Success: true, Flow: flow,
+                        Pressure: (int?)CalculateMouthPressureRaw(flow, frame[14], frame[15]))
                     : default,
                 _ => default
             };
@@ -110,5 +115,13 @@ internal sealed class MeasurementFrameParser
                 value = 0;
                 return false;
         }
+    }
+
+    private static int CalculateMouthPressureRaw(int flowRaw, byte resistanceHigh, byte resistanceLow)
+    {
+        // 新版扩展帧不再直接回传口压，阻力原始值的倍率为 1/10。
+        // flowRaw/1000 * resistanceRaw/10 得到压力；换回 pressureRaw/1000 后即为下式。
+        var resistanceRaw = (resistanceHigh << 8) | resistanceLow;
+        return (int)Math.Round(flowRaw * resistanceRaw / 10d, MidpointRounding.AwayFromZero);
     }
 }

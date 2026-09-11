@@ -11,11 +11,15 @@
         Height="840"
         MinWidth="1180"
         MinHeight="680"
+        MaxWidth="{x:Static system:SystemParameters.MaximizedPrimaryScreenWidth}"
+        MaxHeight="{x:Static system:SystemParameters.MaximizedPrimaryScreenHeight}"
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResize"
         SnapsToDevicePixels="True"
         UseLayoutRounding="True"
+        WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         WindowStyle="None"
         mc:Ignorable="d">
     <shell:WindowChrome.WindowChrome>

@@ -16,6 +16,15 @@ public sealed class MeasurementFrameParserTests
         0x2F, 0xE6, 0x01, 0x00, 0x00, 0x10, 0x62, 0x3C, 0x00, 0x11,
         0xA5, 0x5A
     ];
+    private static readonly byte[] CapturedExtendedFrame =
+    [
+        0x5A, 0xA5, 0x0F, 0xA0, 0x00, 0x00, 0x00, 0xA9, 0xA8, 0x01,
+        0x00, 0x5D, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x00,
+        0x80, 0x0D, 0x80, 0x1A, 0x80, 0x28, 0x80, 0x35, 0x80, 0x41,
+        0x80, 0x4B, 0x80, 0x55, 0x80, 0x5D, 0x80, 0x51, 0x80, 0x0A,
+        0x00, 0x37, 0x00, 0x77, 0x00, 0xB3, 0x00, 0xEC, 0x01, 0x21,
+        0x01, 0x53, 0xA5, 0x5A
+    ];
 
     [Fact]
     public void SampleFrame_ReadsOnlyFlowAndMouthPressure()
@@ -43,18 +52,13 @@ public sealed class MeasurementFrameParserTests
     }
 
     [Fact]
-    public void ExtendedMeasurementFrame_KeepsLegacyFlowAndPressureOffsets()
+    public void CapturedExtendedFrame_UsesCurrentFlowAndDerivedPressure()
     {
-        var expanded = SampleFrame[..^2]
-            .Concat(Enumerable.Repeat((byte)0x00, 24))
-            .Concat(new byte[] { 0xA5, 0x5A })
-            .ToArray();
+        var reading = Assert.Single(new MeasurementFrameParser().Append(CapturedExtendedFrame));
 
-        var reading = Assert.Single(new MeasurementFrameParser().Append(expanded));
-
-        Assert.Equal(54, expanded.Length);
-        Assert.Equal(-12262, reading.FlowRaw);
-        Assert.Equal(0, reading.MouthPressureRaw);
+        Assert.Equal(54, CapturedExtendedFrame.Length);
+        Assert.Equal(-93, reading.FlowRaw);
+        Assert.Equal(-428, reading.MouthPressureRaw);
     }
 
     [Fact]

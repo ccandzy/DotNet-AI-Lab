@@ -303,12 +303,17 @@ public class MainViewModelStabilityTests
     }
     private sealed class Mcp : IMcpClientService
     {
+        public event EventHandler<McpResourceUpdatedEventArgs>? ResourceUpdated;
         public McpConnectionState State => McpConnectionState.Disconnected;
         public McpServerInfo? ServerInfo => null;
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task DisconnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<McpToolInfo>>(Array.Empty<McpToolInfo>());
         public Task<string> CallToolAsync(string name, CancellationToken ct = default) => Task.FromResult("");
+        public Task<McpToolCallResult> CallToolAsync(string name, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default) =>
+            Task.FromResult(new McpToolCallResult(string.Empty, null));
+        public Task SubscribeResourceAsync(string uri, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<string> ReadResourceAsync(string uri, CancellationToken ct = default) => Task.FromResult("null");
         public void Dispose() { }
     }
 }

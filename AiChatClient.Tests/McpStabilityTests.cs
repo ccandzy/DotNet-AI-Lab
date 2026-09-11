@@ -44,6 +44,19 @@ public sealed class McpStabilityTests
         await client.DisconnectAsync();
     }
 
+    [Fact]
+    public async Task ResourceNotification_BetweenRequestAndResponse_IsDispatchedSeparately()
+    {
+        using var client = new McpClientService(NullLogger<McpClientService>.Instance,
+            () => StartInfo("notification"), TimeSpan.FromSeconds(3));
+        var notification = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.ResourceUpdated += (_, args) => notification.TrySetResult(args.Uri);
+        await client.ConnectAsync();
+        Assert.Equal("ok", await client.CallToolAsync("get_current_time"));
+        Assert.Equal("serial://measurement/latest", await notification.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+        await client.DisconnectAsync();
+    }
+
     private static bool IsRunning(int pid)
     {
         try { using var process = Process.GetProcessById(pid); return !process.HasExited; }
@@ -63,6 +76,11 @@ public sealed class McpStabilityTests
                     $result=@{protocolVersion='2025-11-25';serverInfo=@{name='test';version=[string]$PID}}
                 } else {
                     $calls++
+                    if ($fault -eq 'notification' -and $calls -eq 1) {
+                        $notification=@{jsonrpc='2.0';method='notifications/resources/updated';params=@{uri='serial://measurement/latest'}} | ConvertTo-Json -Depth 8 -Compress
+                        [Console]::WriteLine($notification)
+                        [Console]::Out.Flush()
+                    }
                     if ($calls -eq 1) {
                         if ($fault -eq 'timeout') { Start-Sleep -Seconds 20 }
                         if ($fault -eq 'wrong-id') { $id=9999 }

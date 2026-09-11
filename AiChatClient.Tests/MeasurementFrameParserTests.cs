@@ -12,7 +12,7 @@ public sealed class MeasurementFrameParserTests
     ];
     private static readonly byte[] CurrentSampleFrame =
     [
-        0x5A, 0xA5, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01,
+        0x5A, 0xA5, 0x0F, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01,
         0x2F, 0xE6, 0x01, 0x00, 0x00, 0x10, 0x62, 0x3C, 0x00, 0x11,
         0xA5, 0x5A
     ];
@@ -40,6 +40,31 @@ public sealed class MeasurementFrameParserTests
         var reading = Assert.Single(new MeasurementFrameParser().Append(CurrentSampleFrame));
         Assert.Equal(-12262, reading.FlowRaw);
         Assert.Null(reading.MouthPressureRaw);
+    }
+
+    [Fact]
+    public void ExtendedMeasurementFrame_KeepsLegacyFlowAndPressureOffsets()
+    {
+        var expanded = SampleFrame[..^2]
+            .Concat(Enumerable.Repeat((byte)0x00, 24))
+            .Concat(new byte[] { 0xA5, 0x5A })
+            .ToArray();
+
+        var reading = Assert.Single(new MeasurementFrameParser().Append(expanded));
+
+        Assert.Equal(54, expanded.Length);
+        Assert.Equal(-12262, reading.FlowRaw);
+        Assert.Equal(0, reading.MouthPressureRaw);
+    }
+
+    [Fact]
+    public void StopResponse_IsNotReportedAsMeasurement()
+    {
+        var stopResponse = SampleFrame.ToArray();
+        stopResponse[2] = 0x10;
+        stopResponse[3] = 0x04;
+
+        Assert.Empty(new MeasurementFrameParser().Append(stopResponse));
     }
 
     [Fact]

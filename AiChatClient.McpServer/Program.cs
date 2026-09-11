@@ -121,7 +121,7 @@ internal static class Program
             required = new[] { "portName", "baudRate", "dataBits", "parity", "stopBits", "handshake" },
             additionalProperties = false
         }),
-        Tool("start_measurement", "发送大激发开始测量协议，并等待首个有效数据帧。", new
+        Tool("start_measurement", "发送大激发开始测量协议；设备没有独立确认回包。", new
         {
             type = "object",
             properties = new
@@ -164,10 +164,6 @@ internal static class Program
                 _ => Error(id, -32602, $"Tool 名称无效：{name}")
             };
         }
-        catch (TimeoutException)
-        {
-            return ToolError(id, "开始命令已发送，但 3 秒内未收到合法设备数据帧。");
-        }
         catch (Exception exception) when (
             exception is ArgumentException or InvalidOperationException or IOException
             or UnauthorizedAccessException)
@@ -198,9 +194,8 @@ internal static class Program
     {
         var frequency = RequiredInt32(arguments, "frequency");
         var durationSeconds = RequiredInt32(arguments, "durationSeconds");
-        var reading = await Device.StartMeasurementAsync(frequency, durationSeconds, CancellationToken.None);
-        return ToolSuccess(id, new { state = Device.State.ToString(), firstMeasurement = Measurement(reading) },
-            "设备已开始测量，正在接收数据。");
+        await Device.StartMeasurementAsync(frequency, durationSeconds, CancellationToken.None);
+        return ToolSuccess(id, Status(), "开始指令已发送，正在等待实时测量数据。");
     }
 
     private static async Task<string> StopMeasurementAsync(JsonElement id)

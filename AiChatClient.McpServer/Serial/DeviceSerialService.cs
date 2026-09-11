@@ -6,14 +6,11 @@ internal sealed class DeviceSerialService : IAsyncDisposable
 {
     private static readonly byte[] StopCommand =
         [0x34, 0x31, 0x30, 0x30, 0x0D, 0x0A];
-    private static readonly TimeSpan StartResponseTimeout = TimeSpan.FromSeconds(3);
-
     private readonly MeasurementFrameParser _parser = new();
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private SerialPort? _port;
     private CancellationTokenSource? _readCancellation;
     private Task? _readTask;
-    private TaskCompletionSource<MeasurementReading>? _firstMeasurement;
 
     public event Action<MeasurementReading>? MeasurementReceived;
 
@@ -89,53 +86,28 @@ internal sealed class DeviceSerialService : IAsyncDisposable
         }
     }
 
-    public async Task<MeasurementReading> StartMeasurementAsync(
+    public async Task StartMeasurementAsync(
         int frequency,
         int durationSeconds,
         CancellationToken cancellationToken)
     {
         await _operationLock.WaitAsync(cancellationToken);
-        Task<MeasurementReading> firstMeasurementTask;
         try
         {
             var port = EnsureOpen();
-            if (State == DeviceMeasurementState.Measuring && LatestMeasurement is not null)
-            {
-                return LatestMeasurement;
-            }
+            if (State == DeviceMeasurementState.Measuring) return;
 
             State = DeviceMeasurementState.Starting;
             _parser.Reset();
-            _firstMeasurement = new TaskCompletionSource<MeasurementReading>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            firstMeasurementTask = _firstMeasurement.Task;
             await port.BaseStream.WriteAsync(
                 BuildStartProtocolCommand(frequency, durationSeconds), cancellationToken);
             await port.BaseStream.FlushAsync(cancellationToken);
-        }
-        finally
-        {
-            _operationLock.Release();
-        }
-
-        try
-        {
-            var reading = await firstMeasurementTask.WaitAsync(
-                StartResponseTimeout,
-                cancellationToken);
+            // 设备没有独立的“开始成功”回复；串口写入成功即表示命令已下发。
+            // 测量数据通过后台读取循环异步到达，不能在这里等待数据并超时停机。
             State = DeviceMeasurementState.Measuring;
-            return reading;
         }
-        catch
-        {
-            await TrySendStopAfterFailedStartAsync();
-            State = DeviceMeasurementState.PortOpen;
-            throw;
-        }
-        finally
-        {
-            _firstMeasurement = null;
-        }
+        catch { State = DeviceMeasurementState.PortOpen; throw; }
+        finally { _operationLock.Release(); }
     }
 
     public async Task StopMeasurementAsync(CancellationToken cancellationToken)
@@ -147,7 +119,6 @@ internal sealed class DeviceSerialService : IAsyncDisposable
             await port.BaseStream.WriteAsync(StopCommand, cancellationToken);
             await port.BaseStream.FlushAsync(cancellationToken);
             State = DeviceMeasurementState.PortOpen;
-            _firstMeasurement?.TrySetCanceled(cancellationToken);
         }
         finally
         {
@@ -216,7 +187,6 @@ internal sealed class DeviceSerialService : IAsyncDisposable
                 foreach (var reading in _parser.Append(buffer.AsSpan(0, count)))
                 {
                     LatestMeasurement = reading;
-                    _firstMeasurement?.TrySetResult(reading);
                     MeasurementReceived?.Invoke(reading);
                 }
             }
@@ -227,7 +197,6 @@ internal sealed class DeviceSerialService : IAsyncDisposable
         catch (Exception exception)
         {
             State = DeviceMeasurementState.Faulted;
-            _firstMeasurement?.TrySetException(exception);
             Console.Error.WriteLine($"串口读取失败：{exception}");
         }
     }
@@ -240,22 +209,6 @@ internal sealed class DeviceSerialService : IAsyncDisposable
         }
 
         return _port;
-    }
-
-    private async Task TrySendStopAfterFailedStartAsync()
-    {
-        try
-        {
-            if (_port is { IsOpen: true } port)
-            {
-                await port.BaseStream.WriteAsync(StopCommand);
-                await port.BaseStream.FlushAsync();
-            }
-        }
-        catch (Exception exception)
-        {
-            Console.Error.WriteLine($"启动失败后发送停止命令失败：{exception.Message}");
-        }
     }
 
     public async ValueTask DisposeAsync()

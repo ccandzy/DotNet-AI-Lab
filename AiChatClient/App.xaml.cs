@@ -73,6 +73,7 @@ namespace AiChatClient
 
             services.AddSingleton<CalculatorPlugin>();
             services.AddSingleton<TimePlugin>();
+            services.AddSingleton<SerialDevicePlugin>();
             services.AddSingleton<IKernelFactory, SemanticKernelFactory>();
             services.AddSingleton<IChatService>(serviceProvider =>
                 new SemanticKernelChatService(
@@ -84,6 +85,8 @@ namespace AiChatClient
             // MCP Client 持有一个 Server 子进程，因此整个应用只创建一个实例。
             // ServiceProvider 在应用退出时 Dispose，它会清理仍在运行的子进程。
             services.AddSingleton<IMcpClientService, McpClientService>();
+            services.AddSingleton<ISerialDeviceSettingsPersistence, LocalSerialDeviceSettingsPersistence>();
+            services.AddSingleton<ISerialMeasurementCoordinator, SerialMeasurementCoordinator>();
             // Markdown renderer service
             services.AddSingleton<IMarkdownRendererService, MarkdownRendererService>();
             // Dialog service

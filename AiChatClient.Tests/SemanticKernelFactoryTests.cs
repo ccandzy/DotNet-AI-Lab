@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using AiChatClient.Config;
 using AiChatClient.Dtos;
 using AiChatClient.Plugins;
+using AiChatClient.Services.Mcp;
 using AiChatClient.Services.SemanticKernel;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -119,6 +120,10 @@ public sealed class SemanticKernelFactoryTests
         Assert.Equal(
             "current_time",
             kernel.Plugins["Time"]["current_time"].Name);
+        Assert.Equal(6, kernel.Plugins["SerialDevice"].Count());
+        Assert.Equal(
+            "start_measurement",
+            kernel.Plugins["SerialDevice"]["start_measurement"].Name);
     }
 
     [Fact]
@@ -156,7 +161,8 @@ public sealed class SemanticKernelFactoryTests
             new TestHttpClientFactory(),
             NullLoggerFactory.Instance,
             new CalculatorPlugin(),
-            new TimePlugin());
+            new TimePlugin(),
+            new SerialDevicePlugin(new SerialCoordinator()));
     }
 
     private static AiOptions CreateDeepSeekOptions(string apiKey)
@@ -217,6 +223,20 @@ public sealed class SemanticKernelFactoryTests
         {
             return new HttpClient();
         }
+    }
+
+    private sealed class SerialCoordinator : ISerialMeasurementCoordinator
+    {
+        public event EventHandler<SerialDeviceStatusChangedEventArgs>? StatusChanged;
+        public Task<IReadOnlyList<string>> ListPortsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<string> OpenAsync(SerialDeviceSettings settings, CancellationToken cancellationToken = default) => Task.FromResult("");
+        public Task<string> OpenSavedAsync(CancellationToken cancellationToken = default) => Task.FromResult("");
+        public Task<string> StartAsync(SerialDeviceSettings settings, CancellationToken cancellationToken = default) => Task.FromResult("");
+        public Task<string> StartSavedAsync(CancellationToken cancellationToken = default) => Task.FromResult("");
+        public Task<string> StopAsync(CancellationToken cancellationToken = default) => Task.FromResult("");
+        public Task<string> CloseAsync(CancellationToken cancellationToken = default) => Task.FromResult("");
+        public Task<string> GetStatusAsync(CancellationToken cancellationToken = default) => Task.FromResult("");
     }
 
     private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>

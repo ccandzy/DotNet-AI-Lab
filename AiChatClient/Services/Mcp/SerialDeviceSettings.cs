@@ -57,3 +57,15 @@ internal static class SerialDeviceSettingsStore
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
     }
 }
+
+internal interface ISerialDeviceSettingsPersistence
+{
+    SerialDeviceSettings Load();
+    void Save(SerialDeviceSettings settings);
+}
+
+internal sealed class LocalSerialDeviceSettingsPersistence : ISerialDeviceSettingsPersistence
+{
+    public SerialDeviceSettings Load() => SerialDeviceSettingsStore.Load();
+    public void Save(SerialDeviceSettings settings) => SerialDeviceSettingsStore.Save(settings);
+}

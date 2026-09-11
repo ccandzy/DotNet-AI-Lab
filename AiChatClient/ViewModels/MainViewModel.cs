@@ -35,6 +35,7 @@ namespace AiChatClient.ViewModels
         private readonly IRagService _ragService;
         // MCP Client 是单例服务，持有当前启动的 Server 子进程和 stdio 连接。
         private readonly IMcpClientService _mcpClientService;
+        private readonly ISerialMeasurementCoordinator _serialMeasurementCoordinator;
         private readonly IOptionsMonitor<AiOptions> _aiOptions;
 
         private readonly ObservableCollection<AIProviderOptions> _aiProviders = new();
@@ -91,7 +92,8 @@ namespace AiChatClient.ViewModels
             IChatMessageService chatMessageService,
             IAIRoleService aIRoleService, IDialogService dialogService,
             ILogger<MainViewModel> logger, IOptionsMonitor<AiOptions> aiOptions,
-            IRagService ragService, IMcpClientService mcpClientService)
+            IRagService ragService, IMcpClientService mcpClientService,
+            ISerialMeasurementCoordinator serialMeasurementCoordinator)
         {
             _chatService = chatService;
             _conversationService = conversationService;
@@ -100,6 +102,7 @@ namespace AiChatClient.ViewModels
             _dialogService = dialogService;
             _ragService = ragService;
             _mcpClientService = mcpClientService;
+            _serialMeasurementCoordinator = serialMeasurementCoordinator;
             _aiOptions = aiOptions;
             _logger = logger;
 
@@ -1058,8 +1061,9 @@ namespace AiChatClient.ViewModels
             if (!CanSend()) return;
             var conversation = CurrentConversation!;
             var input = CurrentInput.Trim();
-            var provider = SelectedAIProvider!.Name;
-            var model = SelectedAIModel!.ModelId;
+            // 固定设备口令不依赖大模型；普通聊天已由 CanSend 保证 Provider/Model 有效。
+            var provider = SelectedAIProvider?.Name ?? string.Empty;
+            var model = SelectedAIModel?.ModelId ?? string.Empty;
             var settings = CloneGenerationSettings(conversation.GenerationSettings);
             var rolePrompt = conversation.Role?.SystemPrompt;
             var enableRag = IsRagEnabled;

@@ -185,6 +185,20 @@ public class MainViewModelStabilityTests
     }
 
     [Fact]
+    public async Task ExactDeviceIntent_BypassesModelAndStartsOnlyOnce()
+    {
+        var f = await Fixture.Create();
+        f.Vm.SelectedSerialPort = "COM5";
+        f.Vm.CurrentInput = "大激发开始测量";
+
+        await f.Vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Empty(f.Chat.Requests);
+        Assert.Equal(1, f.Mcp.Calls.Count(call => call == "open_serial"));
+        Assert.Equal(1, f.Mcp.Calls.Count(call => call == "start_measurement"));
+    }
+
+    [Fact]
     public async Task ImportCancellation_RestoresButtonsAndKeepsOldIndex()
     {
         var f = await Fixture.Create();
@@ -213,6 +227,7 @@ public class MainViewModelStabilityTests
         public ConversationStore Conversations = new();
         public Dialog Dialog = new();
         public Rag Rag = new();
+        public Mcp Mcp = new();
         public MainViewModel Vm = null!;
         public static async Task<Fixture> Create()
         {
@@ -222,7 +237,9 @@ public class MainViewModelStabilityTests
                 Name = "DeepSeek", Models = [new AIModelOptions { ModelId = "demo", Name = "demo", IsEnabled = true }]
             }] };
             f.Vm = new MainViewModel(f.Chat, f.Conversations, f.Messages, new Roles(),
-                f.Dialog, NullLogger<MainViewModel>.Instance, new Monitor(options), f.Rag, new Mcp());
+                f.Dialog, NullLogger<MainViewModel>.Instance, new Monitor(options), f.Rag, f.Mcp,
+                new SerialMeasurementCoordinator(f.Mcp, NullLogger<SerialMeasurementCoordinator>.Instance,
+                    new SettingsPersistence()));
             await f.Vm.InitializeAsync();
             f.Vm.CurrentInput = "hello";
             return f;
@@ -304,16 +321,30 @@ public class MainViewModelStabilityTests
     private sealed class Mcp : IMcpClientService
     {
         public event EventHandler<McpResourceUpdatedEventArgs>? ResourceUpdated;
-        public McpConnectionState State => McpConnectionState.Disconnected;
-        public McpServerInfo? ServerInfo => null;
-        public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public List<string> Calls { get; } = [];
+        public McpConnectionState State { get; private set; }
+        public McpServerInfo? ServerInfo => State == McpConnectionState.Connected ? new("test", "1") : null;
+        public Task ConnectAsync(CancellationToken ct = default)
+        {
+            State = McpConnectionState.Connected;
+            return Task.CompletedTask;
+        }
         public Task DisconnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<McpToolInfo>>(Array.Empty<McpToolInfo>());
         public Task<string> CallToolAsync(string name, CancellationToken ct = default) => Task.FromResult("");
-        public Task<McpToolCallResult> CallToolAsync(string name, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default) =>
-            Task.FromResult(new McpToolCallResult(string.Empty, null));
+        public Task<McpToolCallResult> CallToolAsync(string name, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default)
+        {
+            Calls.Add(name);
+            return Task.FromResult(new McpToolCallResult(name == "start_measurement" ? "开始指令已发送" : string.Empty, null));
+        }
         public Task SubscribeResourceAsync(string uri, CancellationToken ct = default) => Task.CompletedTask;
         public Task<string> ReadResourceAsync(string uri, CancellationToken ct = default) => Task.FromResult("null");
         public void Dispose() { }
+    }
+
+    private sealed class SettingsPersistence : ISerialDeviceSettingsPersistence
+    {
+        public SerialDeviceSettings Load() => new(string.Empty);
+        public void Save(SerialDeviceSettings settings) { }
     }
 }

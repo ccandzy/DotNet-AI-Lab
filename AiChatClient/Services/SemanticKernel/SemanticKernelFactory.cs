@@ -19,19 +19,22 @@ internal sealed class SemanticKernelFactory : IKernelFactory
     private readonly ILoggerFactory _loggerFactory;
     private readonly CalculatorPlugin _calculatorPlugin;
     private readonly TimePlugin _timePlugin;
+    private readonly SerialDevicePlugin _serialDevicePlugin;
 
     public SemanticKernelFactory(
         IOptionsMonitor<AiOptions> options,
         IHttpClientFactory httpClientFactory,
         ILoggerFactory loggerFactory,
         CalculatorPlugin calculatorPlugin,
-        TimePlugin timePlugin)
+        TimePlugin timePlugin,
+        SerialDevicePlugin serialDevicePlugin)
     {
         _options = options;
         _httpClientFactory = httpClientFactory;
         _loggerFactory = loggerFactory;
         _calculatorPlugin = calculatorPlugin;
         _timePlugin = timePlugin;
+        _serialDevicePlugin = serialDevicePlugin;
     }
 
     public Kernel CreateKernel(
@@ -115,6 +118,7 @@ internal sealed class SemanticKernelFactory : IKernelFactory
         {
             kernel.Plugins.AddFromObject(_calculatorPlugin, "Utilities");
             kernel.Plugins.AddFromObject(_timePlugin, "Time");
+            kernel.Plugins.AddFromObject(_serialDevicePlugin, "SerialDevice");
             kernel.AutoFunctionInvocationFilters.Add(
                 new ToolInvocationEventFilter(eventWriter));
         }

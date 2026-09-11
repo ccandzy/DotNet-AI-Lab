@@ -9,7 +9,7 @@ namespace AiChatClient.ViewModels;
 
 public partial class MainViewModel
 {
-    private const string MeasurementResourceUri = "serial://measurement/latest";
+    private const string MeasurementResourceUri = SerialMeasurementCoordinator.MeasurementResourceUri;
     private readonly Queue<string> _measurementLines = new();
     private int _measurementReadRunning;
     private int _measurementRefreshRequested;
@@ -97,6 +97,7 @@ public partial class MainViewModel
         CloseSerialCommand = new AsyncRelayCommand(CloseSerialAsync, () => !IsSerialBusy && IsMcpConnected);
         ClearMeasurementCommand = new RelayCommand(ClearMeasurement);
         _mcpClientService.ResourceUpdated += McpClientService_ResourceUpdated;
+        _serialMeasurementCoordinator.StatusChanged += SerialMeasurementCoordinator_StatusChanged;
     }
 
     private async Task EnsureMcpConnectedAsync(CancellationToken cancellationToken = default)
@@ -113,17 +114,10 @@ public partial class MainViewModel
     {
         await RunSerialOperationAsync(async cancellationToken =>
         {
-            await EnsureMcpConnectedAsync(cancellationToken);
-            var result = await _mcpClientService.CallToolAsync(
-                "list_serial_ports", new Dictionary<string, object?>(), cancellationToken);
+            var ports = await _serialMeasurementCoordinator.ListPortsAsync(cancellationToken);
             var current = SelectedSerialPort;
             SerialPorts.Clear();
-            if (result.StructuredContent is { } structured
-                && structured.TryGetProperty("ports", out var ports))
-            {
-                foreach (var port in ports.EnumerateArray())
-                    if (port.GetString() is { Length: > 0 } name) SerialPorts.Add(name);
-            }
+            foreach (var port in ports) SerialPorts.Add(port);
             SelectedSerialPort = current is not null && SerialPorts.Contains(current)
                 ? current
                 : SerialPorts.FirstOrDefault();
@@ -136,44 +130,25 @@ public partial class MainViewModel
     private async Task OpenSerialCoreAsync(CancellationToken cancellationToken)
     {
         var settings = CurrentSerialSettings();
-        await EnsureMcpConnectedAsync(cancellationToken);
-        var result = await _mcpClientService.CallToolAsync("open_serial", new Dictionary<string, object?>
-        {
-            ["portName"] = settings.PortName, ["baudRate"] = settings.BaudRate,
-            ["dataBits"] = settings.DataBits, ["parity"] = settings.Parity,
-            ["stopBits"] = settings.StopBits, ["handshake"] = settings.Handshake
-        }, cancellationToken);
-        SerialDeviceSettingsStore.Save(settings);
-        DeviceStatus = result.Text;
+        DeviceStatus = await _serialMeasurementCoordinator.OpenAsync(settings, cancellationToken);
     }
 
     private async Task StartMeasurementAsync() => await RunSerialOperationAsync(StartMeasurementCoreAsync);
 
     private async Task StartMeasurementCoreAsync(CancellationToken cancellationToken)
     {
-        await OpenSerialCoreAsync(cancellationToken);
-        await _mcpClientService.SubscribeResourceAsync(MeasurementResourceUri, cancellationToken);
-        var result = await _mcpClientService.CallToolAsync("start_measurement",
-            new Dictionary<string, object?>
-            {
-                ["frequency"] = MeasurementFrequency,
-                ["durationSeconds"] = MeasurementDurationSeconds
-            }, cancellationToken);
-        DeviceStatus = result.Text;
+        DeviceStatus = await _serialMeasurementCoordinator.StartAsync(
+            CurrentSerialSettings(), cancellationToken);
     }
 
     private async Task StopMeasurementAsync() => await RunSerialOperationAsync(async cancellationToken =>
     {
-        var result = await _mcpClientService.CallToolAsync("stop_measurement",
-            new Dictionary<string, object?>(), cancellationToken);
-        DeviceStatus = result.Text;
+        DeviceStatus = await _serialMeasurementCoordinator.StopAsync(cancellationToken);
     });
 
     private async Task CloseSerialAsync() => await RunSerialOperationAsync(async cancellationToken =>
     {
-        var result = await _mcpClientService.CallToolAsync("close_serial",
-            new Dictionary<string, object?>(), cancellationToken);
-        DeviceStatus = result.Text;
+        DeviceStatus = await _serialMeasurementCoordinator.CloseAsync(cancellationToken);
     });
 
     private async Task RunSerialOperationAsync(Func<CancellationToken, Task> operation)
@@ -213,10 +188,7 @@ public partial class MainViewModel
             if (intent == DeviceIntent.Start) await StartMeasurementCoreAsync(cancellationToken);
             else
             {
-                await EnsureMcpConnectedAsync(cancellationToken);
-                var result = await _mcpClientService.CallToolAsync("stop_measurement",
-                    new Dictionary<string, object?>(), cancellationToken);
-                DeviceStatus = result.Text;
+                DeviceStatus = await _serialMeasurementCoordinator.StopAsync(cancellationToken);
             }
             return DeviceStatus;
         }
@@ -248,6 +220,25 @@ public partial class MainViewModel
         Interlocked.Exchange(ref _measurementRefreshRequested, 1);
         if (Interlocked.Exchange(ref _measurementReadRunning, 1) == 0)
             _ = ReadLatestMeasurementAsync();
+    }
+
+    private void SerialMeasurementCoordinator_StatusChanged(
+        object? sender,
+        SerialDeviceStatusChangedEventArgs e)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        void UpdateUi()
+        {
+            DeviceStatus = e.Status;
+            OnPropertyChanged(nameof(IsMcpConnected));
+            McpConnectionStatus = IsMcpConnected ? "已连接" : "连接已断开";
+            if (IsMcpConnected && _mcpClientService.ServerInfo is { } server)
+                McpServerDisplayName = $"{server.Name}  v{server.Version}";
+            RefreshMcpCommandStates();
+        }
+
+        if (dispatcher is null || dispatcher.CheckAccess()) UpdateUi();
+        else dispatcher.Invoke(UpdateUi);
     }
 
     private async Task ReadLatestMeasurementAsync()

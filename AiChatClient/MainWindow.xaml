@@ -768,6 +768,26 @@
                                 </StackPanel>
                             </Grid>
 
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Margin="0,0,0,5" Style="{StaticResource CaptionText}"
+                                               Text="测量频率 (1–50)" />
+                                    <TextBox Padding="9,7" Text="{Binding MeasurementFrequency, Mode=TwoWay,
+                                             UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Margin="0,0,0,5" Style="{StaticResource CaptionText}"
+                                               Text="测定时间 (秒)" />
+                                    <TextBox Padding="9,7" Text="{Binding MeasurementDurationSeconds, Mode=TwoWay,
+                                             UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                            </Grid>
+
                             <TextBlock Margin="0,10,0,5" Style="{StaticResource CaptionText}" Text="校验 / 停止位 / 握手" />
                             <Grid>
                                 <Grid.ColumnDefinitions>

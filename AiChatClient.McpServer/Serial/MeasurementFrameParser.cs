@@ -2,7 +2,8 @@ namespace AiChatClient.McpServer.Serial;
 
 internal sealed class MeasurementFrameParser
 {
-    internal const int FrameLength = 30;
+    internal const int LegacyFrameLength = 30;
+    internal const int CurrentFrameLength = 22;
     private readonly List<byte> _buffer = new();
     private long _sequence;
 
@@ -16,8 +17,18 @@ internal sealed class MeasurementFrameParser
         var results = new List<MeasurementReading>();
         while (TryTakeFrame(out var frame))
         {
-            if (!TryReadSignedBigEndian(frame[14], frame[15], frame[16], out var flow)
-                || !TryReadSignedBigEndian(frame[17], frame[18], frame[19], out var pressure))
+            var parsed = frame.Length switch
+            {
+                LegacyFrameLength => TryReadSignedBigEndian(frame[14], frame[15], frame[16], out var flow)
+                    && TryReadSignedBigEndian(frame[17], frame[18], frame[19], out var pressure)
+                    ? (Success: true, Flow: flow, Pressure: (int?)pressure)
+                    : default,
+                CurrentFrameLength => TryReadSignedBigEndian(frame[9], frame[10], frame[11], out var flow)
+                    ? (Success: true, Flow: flow, Pressure: (int?)null)
+                    : default,
+                _ => default
+            };
+            if (!parsed.Success)
             {
                 continue;
             }
@@ -25,8 +36,8 @@ internal sealed class MeasurementFrameParser
             results.Add(new MeasurementReading(
                 Interlocked.Increment(ref _sequence),
                 DateTimeOffset.Now,
-                flow,
-                pressure));
+                parsed.Flow,
+                parsed.Pressure));
         }
 
         return results;
@@ -43,19 +54,25 @@ internal sealed class MeasurementFrameParser
             _buffer.RemoveAt(0);
         }
 
-        if (_buffer.Count < FrameLength)
+        if (_buffer.Count < CurrentFrameLength)
         {
             return false;
         }
 
-        if (_buffer[28] != 0xA5 || _buffer[29] != 0x5A)
+        var frameLength = _buffer[20] == 0xA5 && _buffer[21] == 0x5A
+            ? CurrentFrameLength
+            : _buffer.Count >= LegacyFrameLength && _buffer[28] == 0xA5 && _buffer[29] == 0x5A
+                ? LegacyFrameLength
+                : 0;
+        if (frameLength == 0)
         {
+            if (_buffer.Count < LegacyFrameLength) return false;
             _buffer.RemoveAt(0);
             return TryTakeFrame(out frame);
         }
 
-        frame = _buffer.GetRange(0, FrameLength).ToArray();
-        _buffer.RemoveRange(0, FrameLength);
+        frame = _buffer.GetRange(0, frameLength).ToArray();
+        _buffer.RemoveRange(0, frameLength);
         return true;
     }
 

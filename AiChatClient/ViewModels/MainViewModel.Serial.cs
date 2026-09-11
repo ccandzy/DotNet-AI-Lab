@@ -15,11 +15,13 @@ public partial class MainViewModel
     private int _measurementRefreshRequested;
     private bool _isSerialBusy;
     private string? _selectedSerialPort;
-    private int _serialBaudRate = 9600;
+    private int _serialBaudRate = 115200;
     private int _serialDataBits = 8;
     private string _serialParity = "None";
     private string _serialStopBits = "One";
     private string _serialHandshake = "None";
+    private int _measurementFrequency = 3;
+    private int _measurementDurationSeconds = 60;
     private string _deviceStatus = "串口未连接";
     private string _measurementText = "等待测量数据…";
 
@@ -47,6 +49,8 @@ public partial class MainViewModel
     public string SerialParity { get => _serialParity; set => SetProperty(ref _serialParity, value); }
     public string SerialStopBits { get => _serialStopBits; set => SetProperty(ref _serialStopBits, value); }
     public string SerialHandshake { get => _serialHandshake; set => SetProperty(ref _serialHandshake, value); }
+    public int MeasurementFrequency { get => _measurementFrequency; set => SetProperty(ref _measurementFrequency, value); }
+    public int MeasurementDurationSeconds { get => _measurementDurationSeconds; set => SetProperty(ref _measurementDurationSeconds, value); }
     public string DeviceStatus { get => _deviceStatus; private set => SetProperty(ref _deviceStatus, value); }
     public string MeasurementText { get => _measurementText; private set => SetProperty(ref _measurementText, value); }
 
@@ -75,6 +79,8 @@ public partial class MainViewModel
         SerialParity = settings.Parity;
         SerialStopBits = settings.StopBits;
         SerialHandshake = settings.Handshake;
+        MeasurementFrequency = settings.Frequency;
+        MeasurementDurationSeconds = settings.DurationSeconds;
         if (!string.IsNullOrWhiteSpace(settings.PortName)) SerialPorts.Add(settings.PortName);
 
         RefreshSerialPortsCommand = new AsyncRelayCommand(RefreshSerialPortsAsync, () => !IsSerialBusy);
@@ -143,7 +149,11 @@ public partial class MainViewModel
         await OpenSerialCoreAsync(cancellationToken);
         await _mcpClientService.SubscribeResourceAsync(MeasurementResourceUri, cancellationToken);
         var result = await _mcpClientService.CallToolAsync("start_measurement",
-            new Dictionary<string, object?>(), cancellationToken);
+            new Dictionary<string, object?>
+            {
+                ["frequency"] = MeasurementFrequency,
+                ["durationSeconds"] = MeasurementDurationSeconds
+            }, cancellationToken);
         DeviceStatus = result.Text;
     }
 
@@ -182,8 +192,13 @@ public partial class MainViewModel
     {
         if (string.IsNullOrWhiteSpace(SelectedSerialPort))
             throw new InvalidOperationException("请先选择串口。");
+        if (MeasurementFrequency is < 1 or > 50)
+            throw new InvalidOperationException("频率必须在 1 到 50 之间。");
+        if (MeasurementDurationSeconds is < 1 or > 9999)
+            throw new InvalidOperationException("测定时间必须在 1 到 9999 秒之间。");
         return new SerialDeviceSettings(SelectedSerialPort, SerialBaudRate, SerialDataBits,
-            SerialParity, SerialStopBits, SerialHandshake);
+            SerialParity, SerialStopBits, SerialHandshake,
+            MeasurementFrequency, MeasurementDurationSeconds);
     }
 
     private async Task<string> ExecuteDeviceIntentAsync(DeviceIntent intent, CancellationToken cancellationToken)
@@ -242,7 +257,11 @@ public partial class MainViewModel
                 using var document = JsonDocument.Parse(text);
                 var root = document.RootElement;
                 var timestamp = root.GetProperty("timestamp").GetDateTimeOffset().ToLocalTime();
-                var line = $"{timestamp:HH:mm:ss.fff}  流速(raw): {root.GetProperty("flowRaw").GetInt32()}  |  口压(raw): {root.GetProperty("mouthPressureRaw").GetInt32()}";
+                var pressureElement = root.GetProperty("mouthPressureRaw");
+                var pressure = pressureElement.ValueKind == JsonValueKind.Null
+                    ? "--"
+                    : pressureElement.GetInt32().ToString();
+                var line = $"{timestamp:HH:mm:ss.fff}  流速(raw): {root.GetProperty("flowRaw").GetInt32()}  |  口压(raw): {pressure}";
                 var dispatcher = Application.Current?.Dispatcher;
                 if (dispatcher is null || dispatcher.CheckAccess()) AppendMeasurementLine(line);
                 else await dispatcher.InvokeAsync(() => AppendMeasurementLine(line));

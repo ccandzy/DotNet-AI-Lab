@@ -4,8 +4,6 @@ namespace AiChatClient.McpServer.Serial;
 
 internal sealed class DeviceSerialService : IAsyncDisposable
 {
-    private static readonly byte[] StartCommand =
-        [0x34, 0x30, 0x30, 0x30, 0x30, 0x33, 0x0D, 0x0A];
     private static readonly byte[] StopCommand =
         [0x34, 0x31, 0x30, 0x30, 0x0D, 0x0A];
     private static readonly TimeSpan StartResponseTimeout = TimeSpan.FromSeconds(3);
@@ -19,8 +17,16 @@ internal sealed class DeviceSerialService : IAsyncDisposable
 
     public event Action<MeasurementReading>? MeasurementReceived;
 
-    internal static ReadOnlyMemory<byte> StartProtocolCommand => StartCommand;
     internal static ReadOnlyMemory<byte> StopProtocolCommand => StopCommand;
+
+    internal static byte[] BuildStartProtocolCommand(int frequency, int durationSeconds)
+    {
+        if (frequency is < 1 or > 50)
+            throw new ArgumentOutOfRangeException(nameof(frequency), "频率必须在 1 到 50 之间。");
+        if (durationSeconds is < 1 or > 9999)
+            throw new ArgumentOutOfRangeException(nameof(durationSeconds), "测定时间必须在 1 到 9999 秒之间。");
+        return System.Text.Encoding.ASCII.GetBytes($"4000{frequency:D2}{durationSeconds:D4}\r\n");
+    }
 
     public DeviceMeasurementState State { get; private set; } =
         DeviceMeasurementState.Disconnected;
@@ -84,6 +90,8 @@ internal sealed class DeviceSerialService : IAsyncDisposable
     }
 
     public async Task<MeasurementReading> StartMeasurementAsync(
+        int frequency,
+        int durationSeconds,
         CancellationToken cancellationToken)
     {
         await _operationLock.WaitAsync(cancellationToken);
@@ -101,7 +109,8 @@ internal sealed class DeviceSerialService : IAsyncDisposable
             _firstMeasurement = new TaskCompletionSource<MeasurementReading>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             firstMeasurementTask = _firstMeasurement.Task;
-            await port.BaseStream.WriteAsync(StartCommand, cancellationToken);
+            await port.BaseStream.WriteAsync(
+                BuildStartProtocolCommand(frequency, durationSeconds), cancellationToken);
             await port.BaseStream.FlushAsync(cancellationToken);
         }
         finally

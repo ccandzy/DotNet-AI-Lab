@@ -121,7 +121,17 @@ internal static class Program
             required = new[] { "portName", "baudRate", "dataBits", "parity", "stopBits", "handshake" },
             additionalProperties = false
         }),
-        Tool("start_measurement", "发送大激发开始测量协议，并等待首个有效数据帧。", EmptySchema()),
+        Tool("start_measurement", "发送大激发开始测量协议，并等待首个有效数据帧。", new
+        {
+            type = "object",
+            properties = new
+            {
+                frequency = new { type = "integer", minimum = 1, maximum = 50 },
+                durationSeconds = new { type = "integer", minimum = 1, maximum = 9999 }
+            },
+            required = new[] { "frequency", "durationSeconds" },
+            additionalProperties = false
+        }),
         Tool("stop_measurement", "发送大激发停止测量协议，串口保持打开。", EmptySchema()),
         Tool("close_serial", "停止测量并关闭设备串口。", EmptySchema()),
         Tool("get_device_status", "读取当前串口和设备测量状态。", EmptySchema())
@@ -147,7 +157,7 @@ internal static class Program
                     DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz")),
                 "list_serial_ports" => ListSerialPorts(id),
                 "open_serial" => await OpenSerialAsync(id, arguments),
-                "start_measurement" => await StartMeasurementAsync(id),
+                "start_measurement" => await StartMeasurementAsync(id, arguments),
                 "stop_measurement" => await StopMeasurementAsync(id),
                 "close_serial" => await CloseSerialAsync(id),
                 "get_device_status" => ToolSuccess(id, Status(), DescribeStatus()),
@@ -184,9 +194,11 @@ internal static class Program
         return ToolSuccess(id, Status(), $"串口 {options.PortName} 已打开。");
     }
 
-    private static async Task<string> StartMeasurementAsync(JsonElement id)
+    private static async Task<string> StartMeasurementAsync(JsonElement id, JsonElement arguments)
     {
-        var reading = await Device.StartMeasurementAsync(CancellationToken.None);
+        var frequency = RequiredInt32(arguments, "frequency");
+        var durationSeconds = RequiredInt32(arguments, "durationSeconds");
+        var reading = await Device.StartMeasurementAsync(frequency, durationSeconds, CancellationToken.None);
         return ToolSuccess(id, new { state = Device.State.ToString(), firstMeasurement = Measurement(reading) },
             "设备已开始测量，正在接收数据。");
     }

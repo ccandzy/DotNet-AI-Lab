@@ -43,6 +43,18 @@ public sealed class MeasurementFrameParserTests
     }
 
     [Fact]
+    public void UnsupportedCompleteFrame_IsStillExposedForDiagnostics()
+    {
+        var parser = new MeasurementFrameParser();
+        ReadOnlyMemory<byte> receivedFrame = default;
+        parser.FrameReceived += frame => receivedFrame = frame;
+        var unsupported = new byte[] { 0x5A, 0xA5, 0x40, 0x00, 0x11, 0x22, 0xA5, 0x5A };
+
+        Assert.Empty(parser.Append(unsupported));
+        Assert.Equal(unsupported, receivedFrame.ToArray());
+    }
+
+    [Fact]
     public void NoiseAndJoinedFrames_AreResynchronized()
     {
         var parser = new MeasurementFrameParser();

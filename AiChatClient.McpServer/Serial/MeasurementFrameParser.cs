@@ -8,6 +8,8 @@ internal sealed class MeasurementFrameParser
     private readonly List<byte> _buffer = new();
     private long _sequence;
 
+    public event Action<ReadOnlyMemory<byte>>? FrameReceived;
+
     public IReadOnlyList<MeasurementReading> Append(ReadOnlySpan<byte> bytes)
     {
         foreach (var value in bytes)
@@ -18,6 +20,7 @@ internal sealed class MeasurementFrameParser
         var results = new List<MeasurementReading>();
         while (TryTakeFrame(out var frame))
         {
+            FrameReceived?.Invoke(frame);
             var parsed = frame.Length switch
             {
                 LegacyFrameLength => TryReadSignedBigEndian(frame[14], frame[15], frame[16], out var flow)

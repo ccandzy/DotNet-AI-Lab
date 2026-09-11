@@ -816,6 +816,13 @@
                             <Button Margin="0,7,0,0" Command="{Binding CloseSerialCommand}"
                                     Content="关闭串口" Style="{StaticResource SecondaryButton}" />
 
+                            <TextBlock Margin="0,10,0,0" FontSize="11" Foreground="#4D747C"
+                                       Text="{Binding SerialReceiveStatus}" TextWrapping="Wrap" />
+                            <TextBlock Margin="0,4,0,0" MaxHeight="52" FontFamily="Consolas" FontSize="10"
+                                       Foreground="#788F96" Text="{Binding SerialLastFrame}"
+                                       TextTrimming="CharacterEllipsis" TextWrapping="Wrap"
+                                       ToolTip="{Binding SerialLastFrame}" />
+
                             <Grid Margin="0,16,0,6">
                                 <TextBlock Style="{StaticResource CaptionText}" Text="实时数据（原始值）" />
                                 <Button HorizontalAlignment="Right" Padding="10,4" Command="{Binding ClearMeasurementCommand}"

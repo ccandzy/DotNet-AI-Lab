@@ -23,7 +23,7 @@ internal static class Program
     {
         Console.InputEncoding = Encoding.UTF8;
         Console.OutputEncoding = new UTF8Encoding(false);
-        Device.MeasurementReceived += OnMeasurementReceived;
+        Device.SerialActivity += OnSerialActivity;
         try
         {
             string? line;
@@ -35,7 +35,7 @@ internal static class Program
         }
         finally
         {
-            Device.MeasurementReceived -= OnMeasurementReceived;
+            Device.SerialActivity -= OnSerialActivity;
             await Device.DisposeAsync();
             await NotificationTimer.DisposeAsync();
             OutputLock.Dispose();
@@ -214,7 +214,8 @@ internal static class Program
     {
         state = Device.State.ToString(),
         portName = Device.ConnectionOptions?.PortName,
-        latestMeasurement = Device.LatestMeasurement is null ? null : Measurement(Device.LatestMeasurement)
+        latestMeasurement = Device.LatestMeasurement is null ? null : Measurement(Device.LatestMeasurement),
+        diagnostics = Diagnostics(Device.Diagnostics)
     };
 
     private static string DescribeStatus() => Device.ConnectionOptions is null
@@ -229,6 +230,32 @@ internal static class Program
         mouthPressureRaw = reading.MouthPressureRaw
     };
 
+    private static object Diagnostics(SerialReceiveDiagnostics diagnostics) => new
+    {
+        activitySequence = diagnostics.ActivitySequence,
+        bytesReceived = diagnostics.BytesReceived,
+        framesReceived = diagnostics.FramesReceived,
+        measurementsParsed = diagnostics.MeasurementsParsed,
+        lastFrameLength = diagnostics.LastFrameLength,
+        lastFrameHex = diagnostics.LastFrameHex,
+        lastReceiveHex = diagnostics.LastReceiveHex,
+        lastActivityAt = diagnostics.LastActivityAt?.ToString("O")
+    };
+
+    private static object MeasurementResource()
+    {
+        var reading = Device.LatestMeasurement;
+        var diagnostics = Device.Diagnostics;
+        return new
+        {
+            sequence = reading?.Sequence,
+            timestamp = reading?.Timestamp.ToString("O"),
+            flowRaw = reading?.FlowRaw,
+            mouthPressureRaw = reading?.MouthPressureRaw,
+            diagnostics = Diagnostics(diagnostics)
+        };
+    }
+
     private static string ListResources(JsonElement id) => Success(id, new
     {
         resources = new[]
@@ -242,8 +269,7 @@ internal static class Program
     {
         if (!TryGetResourceUri(root, out var uri) || uri != MeasurementResourceUri)
             return Error(id, -32602, "资源 URI 无效。");
-        var text = Device.LatestMeasurement is null ? "null"
-            : JsonSerializer.Serialize(Measurement(Device.LatestMeasurement), SerializerOptions);
+        var text = JsonSerializer.Serialize(MeasurementResource(), SerializerOptions);
         return Success(id, new
         {
             contents = new[] { new { uri = MeasurementResourceUri, mimeType = "application/json", text } }
@@ -258,9 +284,9 @@ internal static class Program
         return Success(id, new { });
     }
 
-    private static void OnMeasurementReceived(MeasurementReading reading)
+    private static void OnSerialActivity(long activitySequence)
     {
-        Interlocked.Exchange(ref _latestSequence, reading.Sequence);
+        Interlocked.Exchange(ref _latestSequence, activitySequence);
         if (_measurementSubscribed && Interlocked.Exchange(ref _notificationScheduled, 1) == 0)
             NotificationTimer.Change(TimeSpan.FromMilliseconds(100), Timeout.InfiniteTimeSpan);
     }

@@ -13,6 +13,7 @@ public partial class MainViewModel
     private readonly Queue<string> _measurementLines = new();
     private int _measurementReadRunning;
     private int _measurementRefreshRequested;
+    private long _lastDisplayedMeasurementSequence;
     private bool _isSerialBusy;
     private string? _selectedSerialPort;
     private int _serialBaudRate = 115200;
@@ -23,6 +24,8 @@ public partial class MainViewModel
     private int _measurementFrequency = 3;
     private int _measurementDurationSeconds = 60;
     private string _deviceStatus = "串口未连接";
+    private string _serialReceiveStatus = "接收诊断：尚未收到串口字节";
+    private string _serialLastFrame = "最近原始帧：—";
     private string _measurementText = "等待测量数据…";
 
     public ObservableCollection<string> SerialPorts { get; } = new();
@@ -52,6 +55,8 @@ public partial class MainViewModel
     public int MeasurementFrequency { get => _measurementFrequency; set => SetProperty(ref _measurementFrequency, value); }
     public int MeasurementDurationSeconds { get => _measurementDurationSeconds; set => SetProperty(ref _measurementDurationSeconds, value); }
     public string DeviceStatus { get => _deviceStatus; private set => SetProperty(ref _deviceStatus, value); }
+    public string SerialReceiveStatus { get => _serialReceiveStatus; private set => SetProperty(ref _serialReceiveStatus, value); }
+    public string SerialLastFrame { get => _serialLastFrame; private set => SetProperty(ref _serialLastFrame, value); }
     public string MeasurementText { get => _measurementText; private set => SetProperty(ref _measurementText, value); }
 
     public bool IsSerialBusy
@@ -253,18 +258,51 @@ public partial class MainViewModel
             {
                 Interlocked.Exchange(ref _measurementRefreshRequested, 0);
                 var text = await _mcpClientService.ReadResourceAsync(MeasurementResourceUri);
-                if (text == "null") continue;
                 using var document = JsonDocument.Parse(text);
                 var root = document.RootElement;
-                var timestamp = root.GetProperty("timestamp").GetDateTimeOffset().ToLocalTime();
-                var pressureElement = root.GetProperty("mouthPressureRaw");
-                var pressure = pressureElement.ValueKind == JsonValueKind.Null
-                    ? "--"
-                    : pressureElement.GetInt32().ToString();
-                var line = $"{timestamp:HH:mm:ss.fff}  流速(raw): {root.GetProperty("flowRaw").GetInt32()}  |  口压(raw): {pressure}";
+                var diagnostics = root.GetProperty("diagnostics");
+                var bytesReceived = diagnostics.GetProperty("bytesReceived").GetInt64();
+                var framesReceived = diagnostics.GetProperty("framesReceived").GetInt64();
+                var measurementsParsed = diagnostics.GetProperty("measurementsParsed").GetInt64();
+                var lastFrameLength = diagnostics.GetProperty("lastFrameLength").GetInt32();
+                var lastFrameHexElement = diagnostics.GetProperty("lastFrameHex");
+                var lastFrameHex = lastFrameHexElement.ValueKind == JsonValueKind.String
+                    ? lastFrameHexElement.GetString()
+                    : null;
+                var lastReceiveHexElement = diagnostics.GetProperty("lastReceiveHex");
+                var lastReceiveHex = lastReceiveHexElement.ValueKind == JsonValueKind.String
+                    ? lastReceiveHexElement.GetString()
+                    : null;
+                string? line = null;
+                if (root.TryGetProperty("sequence", out var sequenceElement)
+                    && sequenceElement.ValueKind == JsonValueKind.Number
+                    && sequenceElement.TryGetInt64(out var sequence)
+                    && sequence != Interlocked.Read(ref _lastDisplayedMeasurementSequence)
+                    && root.TryGetProperty("flowRaw", out var flowElement)
+                    && flowElement.ValueKind == JsonValueKind.Number)
+                {
+                    var timestamp = root.GetProperty("timestamp").GetDateTimeOffset().ToLocalTime();
+                    var pressureElement = root.GetProperty("mouthPressureRaw");
+                    var pressure = pressureElement.ValueKind == JsonValueKind.Null
+                        ? "--"
+                        : pressureElement.GetInt32().ToString();
+                    line = $"{timestamp:HH:mm:ss.fff}  流速(raw): {flowElement.GetInt32()}  |  口压(raw): {pressure}";
+                    Interlocked.Exchange(ref _lastDisplayedMeasurementSequence, sequence);
+                }
                 var dispatcher = Application.Current?.Dispatcher;
-                if (dispatcher is null || dispatcher.CheckAccess()) AppendMeasurementLine(line);
-                else await dispatcher.InvokeAsync(() => AppendMeasurementLine(line));
+                void UpdateUi()
+                {
+                    SerialReceiveStatus = $"接收诊断：{bytesReceived} 字节 / {framesReceived} 完整帧 / {measurementsParsed} 条有效数据"
+                        + (lastFrameLength > 0 ? $" / 最近帧 {lastFrameLength} 字节" : string.Empty);
+                    SerialLastFrame = !string.IsNullOrWhiteSpace(lastFrameHex)
+                        ? $"最近完整帧：{FormatHex(lastFrameHex)}"
+                        : !string.IsNullOrWhiteSpace(lastReceiveHex)
+                            ? $"最近接收片段：{FormatHex(lastReceiveHex)}"
+                            : "最近原始帧：—";
+                    if (line is not null) AppendMeasurementLine(line);
+                }
+                if (dispatcher is null || dispatcher.CheckAccess()) UpdateUi();
+                else await dispatcher.InvokeAsync(UpdateUi);
             }
             while (Interlocked.CompareExchange(ref _measurementRefreshRequested, 0, 0) != 0);
         }
@@ -292,6 +330,13 @@ public partial class MainViewModel
     {
         _measurementLines.Clear();
         MeasurementText = "等待测量数据…";
+    }
+
+    private static string FormatHex(string compactHex)
+    {
+        if (compactHex.Length < 2) return compactHex;
+        return string.Join(' ', Enumerable.Range(0, compactHex.Length / 2)
+            .Select(index => compactHex.Substring(index * 2, 2)));
     }
 
     private void RefreshSerialCommandStates()

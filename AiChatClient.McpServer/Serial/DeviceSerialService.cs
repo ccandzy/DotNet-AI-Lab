@@ -8,11 +8,21 @@ internal sealed class DeviceSerialService : IAsyncDisposable
         [0x34, 0x31, 0x30, 0x30, 0x0D, 0x0A];
     private readonly MeasurementFrameParser _parser = new();
     private readonly SemaphoreSlim _operationLock = new(1, 1);
+    private readonly object _receiveLock = new();
     private SerialPort? _port;
-    private CancellationTokenSource? _readCancellation;
-    private Task? _readTask;
+    private long _activitySequence;
+    private long _bytesReceived;
+    private long _framesReceived;
+    private long _measurementsParsed;
+    private int _lastFrameLength;
+    private string? _lastFrameHex;
+    private string? _lastReceiveHex;
+    private DateTimeOffset? _lastActivityAt;
 
     public event Action<MeasurementReading>? MeasurementReceived;
+    public event Action<long>? SerialActivity;
+
+    public DeviceSerialService() => _parser.FrameReceived += OnFrameReceived;
 
     internal static ReadOnlyMemory<byte> StopProtocolCommand => StopCommand;
 
@@ -31,6 +41,19 @@ internal sealed class DeviceSerialService : IAsyncDisposable
     public SerialConnectionOptions? ConnectionOptions { get; private set; }
 
     public MeasurementReading? LatestMeasurement { get; private set; }
+
+    public SerialReceiveDiagnostics Diagnostics
+    {
+        get
+        {
+            lock (_receiveLock)
+            {
+                return new SerialReceiveDiagnostics(
+                    _activitySequence, _bytesReceived, _framesReceived, _measurementsParsed,
+                    _lastFrameLength, _lastFrameHex, _lastReceiveHex, _lastActivityAt);
+            }
+        }
+    }
 
     public static IReadOnlyList<string> GetPortNames() =>
         SerialPort.GetPortNames().Order(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -70,9 +93,8 @@ internal sealed class DeviceSerialService : IAsyncDisposable
                 _port = port;
                 ConnectionOptions = options;
                 State = DeviceMeasurementState.PortOpen;
-                _parser.Reset();
-                _readCancellation = new CancellationTokenSource();
-                _readTask = ReadLoopAsync(port, _readCancellation.Token);
+                ResetReceiveState();
+                port.DataReceived += Port_DataReceived;
             }
             catch
             {
@@ -98,13 +120,13 @@ internal sealed class DeviceSerialService : IAsyncDisposable
             if (State == DeviceMeasurementState.Measuring) return;
 
             State = DeviceMeasurementState.Starting;
-            _parser.Reset();
-            await port.BaseStream.WriteAsync(
-                BuildStartProtocolCommand(frequency, durationSeconds), cancellationToken);
-            await port.BaseStream.FlushAsync(cancellationToken);
+            ResetReceiveState();
+            var command = BuildStartProtocolCommand(frequency, durationSeconds);
+            port.Write(command, 0, command.Length);
             // 设备没有独立的“开始成功”回复；串口写入成功即表示命令已下发。
-            // 测量数据通过后台读取循环异步到达，不能在这里等待数据并超时停机。
+            // 测量数据通过 DataReceived 事件异步到达，不能在这里等待数据并超时停机。
             State = DeviceMeasurementState.Measuring;
+            SerialActivity?.Invoke(Diagnostics.ActivitySequence);
         }
         catch { State = DeviceMeasurementState.PortOpen; throw; }
         finally { _operationLock.Release(); }
@@ -116,8 +138,7 @@ internal sealed class DeviceSerialService : IAsyncDisposable
         try
         {
             var port = EnsureOpen();
-            await port.BaseStream.WriteAsync(StopCommand, cancellationToken);
-            await port.BaseStream.FlushAsync(cancellationToken);
+            port.Write(StopCommand, 0, StopCommand.Length);
             State = DeviceMeasurementState.PortOpen;
         }
         finally
@@ -142,8 +163,7 @@ internal sealed class DeviceSerialService : IAsyncDisposable
             {
                 try
                 {
-                    await port.BaseStream.WriteAsync(StopCommand, cancellationToken);
-                    await port.BaseStream.FlushAsync(cancellationToken);
+                    port.Write(StopCommand, 0, StopCommand.Length);
                 }
                 catch (Exception exception)
                 {
@@ -151,7 +171,7 @@ internal sealed class DeviceSerialService : IAsyncDisposable
                 }
             }
 
-            _readCancellation?.Cancel();
+            port.DataReceived -= Port_DataReceived;
             port.Close();
             port.Dispose();
             _port = null;
@@ -164,40 +184,69 @@ internal sealed class DeviceSerialService : IAsyncDisposable
             _operationLock.Release();
         }
 
-        if (_readTask is not null)
-        {
-            try { await _readTask.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken); }
-            catch (Exception) { }
-        }
-
-        _readCancellation?.Dispose();
-        _readCancellation = null;
-        _readTask = null;
     }
 
-    private async Task ReadLoopAsync(SerialPort port, CancellationToken cancellationToken)
+    private void Port_DataReceived(object sender, SerialDataReceivedEventArgs eventArgs)
     {
-        var buffer = new byte[256];
         try
         {
-            while (!cancellationToken.IsCancellationRequested && port.IsOpen)
+            if (sender is not SerialPort port || !port.IsOpen) return;
+            var available = port.BytesToRead;
+            if (available <= 0) return;
+            var buffer = new byte[available];
+            var count = port.Read(buffer, 0, buffer.Length);
+            if (count <= 0) return;
+
+            IReadOnlyList<MeasurementReading> readings;
+            long activitySequence;
+            lock (_receiveLock)
             {
-                var count = await port.BaseStream.ReadAsync(buffer, cancellationToken);
-                if (count == 0) continue;
-                foreach (var reading in _parser.Append(buffer.AsSpan(0, count)))
-                {
-                    LatestMeasurement = reading;
-                    MeasurementReceived?.Invoke(reading);
-                }
+                _bytesReceived += count;
+                _lastActivityAt = DateTimeOffset.Now;
+                _lastReceiveHex = Convert.ToHexString(buffer.AsSpan(0, count));
+                readings = _parser.Append(buffer.AsSpan(0, count));
+                _measurementsParsed += readings.Count;
+                activitySequence = ++_activitySequence;
             }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
+
+            foreach (var reading in readings)
+            {
+                LatestMeasurement = reading;
+                MeasurementReceived?.Invoke(reading);
+            }
+            SerialActivity?.Invoke(activitySequence);
         }
         catch (Exception exception)
         {
             State = DeviceMeasurementState.Faulted;
             Console.Error.WriteLine($"串口读取失败：{exception}");
+            var sequence = Interlocked.Increment(ref _activitySequence);
+            SerialActivity?.Invoke(sequence);
+        }
+    }
+
+    private void OnFrameReceived(ReadOnlyMemory<byte> frame)
+    {
+        // MeasurementFrameParser is invoked while _receiveLock is held.
+        _framesReceived++;
+        _lastFrameLength = frame.Length;
+        _lastFrameHex = Convert.ToHexString(frame.Span);
+    }
+
+    private void ResetReceiveState()
+    {
+        lock (_receiveLock)
+        {
+            _parser.Reset();
+            LatestMeasurement = null;
+            _bytesReceived = 0;
+            _framesReceived = 0;
+            _measurementsParsed = 0;
+            _lastFrameLength = 0;
+            _lastFrameHex = null;
+            _lastReceiveHex = null;
+            _lastActivityAt = null;
+            _activitySequence++;
         }
     }
 
@@ -214,6 +263,17 @@ internal sealed class DeviceSerialService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await CloseAsync(CancellationToken.None);
+        _parser.FrameReceived -= OnFrameReceived;
         _operationLock.Dispose();
     }
 }
+
+internal sealed record SerialReceiveDiagnostics(
+    long ActivitySequence,
+    long BytesReceived,
+    long FramesReceived,
+    long MeasurementsParsed,
+    int LastFrameLength,
+    string? LastFrameHex,
+    string? LastReceiveHex,
+    DateTimeOffset? LastActivityAt);

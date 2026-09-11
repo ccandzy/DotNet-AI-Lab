@@ -1,6 +1,7 @@
 ﻿using System.Windows;
 using System.Windows.Input;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using AiChatClient.ViewModels;
 
 namespace AiChatClient
@@ -10,12 +11,28 @@ namespace AiChatClient
     /// </summary>
     public partial class MainWindow : Window
     {
+        private HwndSource? _windowSource;
+
         public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
             DataContext = viewModel;
 
             InputTextBox.PreviewKeyDown += InputTextBox_PreviewKeyDown;
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            _windowSource?.AddHook(WindowWorkAreaManager.WindowProc);
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            _windowSource?.RemoveHook(WindowWorkAreaManager.WindowProc);
+            _windowSource = null;
+            base.OnClosed(e);
         }
 
         private void InputTextBox_PreviewKeyDown(object? sender, KeyEventArgs e)

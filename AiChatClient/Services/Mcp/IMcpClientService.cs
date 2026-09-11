@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace AiChatClient.Services.Mcp;
 
 /// <summary>
@@ -9,6 +11,8 @@ namespace AiChatClient.Services.Mcp;
 /// </remarks>
 public interface IMcpClientService : IDisposable
 {
+    event EventHandler<McpResourceUpdatedEventArgs>? ResourceUpdated;
+
     /// <summary>
     /// 当前 MCP 连接所处的状态，供 ViewModel 控制界面和命令启用条件使用。
     /// </summary>
@@ -35,6 +39,19 @@ public interface IMcpClientService : IDisposable
     /// </summary>
     Task<string> CallToolAsync(
         string toolName,
+        CancellationToken cancellationToken = default);
+
+    Task<McpToolCallResult> CallToolAsync(
+        string toolName,
+        IReadOnlyDictionary<string, object?> arguments,
+        CancellationToken cancellationToken = default);
+
+    Task SubscribeResourceAsync(
+        string uri,
+        CancellationToken cancellationToken = default);
+
+    Task<string> ReadResourceAsync(
+        string uri,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -69,4 +86,16 @@ public sealed record McpServerInfo(string Name, string Version);
 /// <summary>
 /// tools/list 返回并展示在页面中的最小 Tool 信息。
 /// </summary>
-public sealed record McpToolInfo(string Name, string Description);
+public sealed record McpToolInfo(
+    string Name,
+    string Description,
+    string InputSchemaJson = "{}");
+
+public sealed record McpToolCallResult(
+    string Text,
+    JsonElement? StructuredContent);
+
+public sealed class McpResourceUpdatedEventArgs(string uri) : EventArgs
+{
+    public string Uri { get; } = uri;
+}

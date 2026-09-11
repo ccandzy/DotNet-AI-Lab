@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using System.Windows.Input;
+using System.Windows.Controls;
 using AiChatClient.ViewModels;
 
 namespace AiChatClient
@@ -26,6 +27,14 @@ namespace AiChatClient
                 {
                     vm.SendCommand.Execute(null);
                 }
+            }
+        }
+
+        private void MeasurementTextBox_OnTextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is TextBox textBox)
+            {
+                textBox.ScrollToEnd();
             }
         }
 

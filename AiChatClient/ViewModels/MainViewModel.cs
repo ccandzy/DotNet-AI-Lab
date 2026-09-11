@@ -133,6 +133,7 @@ namespace AiChatClient.ViewModels
             CallMcpToolCommand = new AsyncRelayCommand(
                 CallMcpToolAsync,
                 () => !IsMcpBusy && IsMcpConnected && SelectedMcpTool is not null);
+            InitializeSerialControls();
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
@@ -1033,16 +1034,24 @@ namespace AiChatClient.ViewModels
             ConnectMcpCommand.NotifyCanExecuteChanged();
             DisconnectMcpCommand.NotifyCanExecuteChanged();
             CallMcpToolCommand.NotifyCanExecuteChanged();
+            RefreshSerialCommandStates();
         }
 
-        private bool CanSend() => CanManageConversations
-            && CurrentConversation is not null
-            && SelectedAIProvider is not null
-            && AIProviderNames.IsSupported(SelectedAIProvider.Name)
-            && SelectedAIModel is { IsEnabled: true }
-            && AIModels.Contains(SelectedAIModel)
-            && !string.IsNullOrWhiteSpace(SelectedAIModel.ModelId)
-            && !string.IsNullOrWhiteSpace(CurrentInput);
+        private bool CanSend()
+        {
+            if (!CanManageConversations || CurrentConversation is null
+                || string.IsNullOrWhiteSpace(CurrentInput))
+            {
+                return false;
+            }
+
+            if (TryGetDeviceIntent(CurrentInput, out _)) return true;
+            return SelectedAIProvider is not null
+                && AIProviderNames.IsSupported(SelectedAIProvider.Name)
+                && SelectedAIModel is { IsEnabled: true }
+                && AIModels.Contains(SelectedAIModel)
+                && !string.IsNullOrWhiteSpace(SelectedAIModel.ModelId);
+        }
 
         private async Task SendAsync()
         {
@@ -1083,6 +1092,21 @@ namespace AiChatClient.ViewModels
                 history.Add(new ChatRequestMessage { Role = user.Role, Content = input });
                 if (CurrentInput.Trim() == input) CurrentInput = string.Empty;
                 requestCts.Token.ThrowIfCancellationRequested();
+
+                if (TryGetDeviceIntent(input, out var deviceIntent))
+                {
+                    phase = "执行设备指令";
+                    answer = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now)
+                    {
+                        IsTransient = true
+                    };
+                    conversation.Messages.Add(answer);
+                    answer.Content = await ExecuteDeviceIntentAsync(deviceIntent, requestCts.Token);
+                    phase = "保存回答";
+                    await _chatMessageService.AddMessageAsync(conversation.Id, answer);
+                    answer.IsTransient = false;
+                    return;
+                }
 
                 phase = "生成回答";
                 IReadOnlyList<VectorSearchResult> results = Array.Empty<VectorSearchResult>();

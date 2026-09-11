@@ -804,7 +804,8 @@
                             <TextBox x:Name="MeasurementTextBox" Height="190" Padding="9" IsReadOnly="True"
                                      AcceptsReturn="True" FontFamily="Consolas" FontSize="11"
                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                                     Text="{Binding MeasurementText}" TextChanged="MeasurementTextBox_OnTextChanged" />
+                                     Text="{Binding MeasurementText, Mode=OneWay}"
+                                     TextChanged="MeasurementTextBox_OnTextChanged" />
                             <TextBlock Margin="0,10,0,0" FontSize="11" Foreground="#788F96"
                                        Text="对话口令：大激发开始测量 / 大激发停止测量" TextWrapping="Wrap" />
                         </StackPanel>

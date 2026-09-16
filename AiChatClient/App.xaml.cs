@@ -47,6 +47,14 @@ namespace AiChatClient
                 builder.ClearProviders();
                 builder.AddDebug();
                 builder.SetMinimumLevel(LogLevel.Information);
+#if DEBUG
+                builder.AddFilter(
+                    "AiChatClient.Services.Impl.SemanticKernelChatService",
+                    LogLevel.Debug);
+                builder.AddFilter(
+                    "AiChatClient.Services.SemanticKernel.ToolInvocationEventFilter",
+                    LogLevel.Debug);
+#endif
             });
 
             services.Configure<AiOptions>(
@@ -77,7 +85,8 @@ namespace AiChatClient
             services.AddSingleton<IKernelFactory, SemanticKernelFactory>();
             services.AddSingleton<IChatService>(serviceProvider =>
                 new SemanticKernelChatService(
-                    serviceProvider.GetRequiredService<IKernelFactory>()));
+                    serviceProvider.GetRequiredService<IKernelFactory>(),
+                    serviceProvider.GetRequiredService<ILogger<SemanticKernelChatService>>()));
             services.AddSingleton<IDocumentLoader, MarkdownDocumentLoader>();
             services.AddSingleton<IEmbeddingService, SemanticKernelEmbeddingService>();
             services.AddSingleton<IVectorStore, InMemoryVectorStore>();

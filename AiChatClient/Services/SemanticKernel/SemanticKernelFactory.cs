@@ -120,7 +120,9 @@ internal sealed class SemanticKernelFactory : IKernelFactory
             kernel.Plugins.AddFromObject(_timePlugin, "Time");
             kernel.Plugins.AddFromObject(_serialDevicePlugin, "SerialDevice");
             kernel.AutoFunctionInvocationFilters.Add(
-                new ToolInvocationEventFilter(eventWriter));
+                new ToolInvocationEventFilter(
+                    eventWriter,
+                    _loggerFactory.CreateLogger<ToolInvocationEventFilter>()));
         }
 
         return kernel;

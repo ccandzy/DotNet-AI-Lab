@@ -10,31 +10,31 @@
     body {
       overflow-y: auto;
       background: transparent;
-      color: #203c44;
+      color: #18364b;
       font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
       font-size: 14px;
     }
-    #messages { box-sizing: border-box; min-height: 100%; padding: 14px 18px; }
-    .message-row { display: flex; margin: 5px 0; }
+    #messages { box-sizing: border-box; min-height: 100%; padding: 20px 22px; }
+    .message-row { display: flex; margin: 7px 0; }
     .message-row.user { justify-content: flex-end; }
     .message-row.assistant { justify-content: flex-start; }
     .bubble {
       box-sizing: border-box;
-      max-width: min(700px, 82%);
-      padding: 10px 14px;
-      border-radius: 9px;
+      max-width: min(760px, 82%);
+      padding: 11px 15px;
+      border-radius: 12px;
       overflow-wrap: anywhere;
       word-break: break-word;
     }
-    .user .bubble { background: #ddf0f0; color: #25454d; }
-    .assistant .bubble { background: #fff; border: 1px solid #e0eaec; }
+    .user .bubble { background: #dff2f4; color: #174653; box-shadow: 0 2px 7px rgba(26, 87, 101, .06); }
+    .assistant .bubble { background: #fff; border: 1px solid #dce8ee; box-shadow: 0 2px 8px rgba(36, 74, 93, .05); }
     .message-content { line-height: 1.6; }
     .message-content > :first-child { margin-top: 0; }
     .message-content > :last-child { margin-bottom: 0; }
     .message-content p { margin: 4px 0; }
     .message-content h1, .message-content h2, .message-content h3, .message-content h4 {
       margin: 12px 0 6px;
-      color: #1d3e45;
+      color: #18364b;
       line-height: 1.35;
     }
     .message-content h1 { font-size: 1.25em; }
@@ -53,7 +53,7 @@
       margin: 8px 0;
       padding: 12px;
       border-radius: 6px;
-      background: #eef4f5;
+      background: #eff6f8;
     }
     .message-content code {
       font-family: Consolas, "Courier New", monospace;
@@ -62,13 +62,13 @@
     .message-content :not(pre) > code {
       padding: 1px 4px;
       border-radius: 4px;
-      background: #eef4f5;
+      background: #eff6f8;
     }
     .message-content table { width: 100%; margin: 8px 0; border-collapse: collapse; }
     .message-content th, .message-content td { padding: 6px; border: 1px solid #cddde0; text-align: left; }
-    .message-content th { background: #eef5f6; }
+    .message-content th { background: #eff6f8; }
     .message-content img { max-width: 100%; height: auto; border-radius: 4px; }
-    .message-content a { color: #27727c; }
+    .message-content a { color: #168d97; }
     .message-sources {
       margin-top: 10px;
       padding-top: 8px;

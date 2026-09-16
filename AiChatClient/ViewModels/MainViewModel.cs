@@ -112,6 +112,7 @@ namespace AiChatClient.ViewModels
             CancelKnowledgeImportCommand = new RelayCommand(
                 () => _knowledgeImportCts?.Cancel(), () => IsImportingKnowledge);
             // Commands
+            ApplyPromptTemplateCommand = new RelayCommand<string>(ApplyPromptTemplate);
             SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
             StopCommand = new RelayCommand(Stop, () => IsBusy);
             ClearCommand = new AsyncRelayCommand(ClearMessagesAsync, () => CanManageConversations && CurrentConversation is not null && Messages.Count > 0);
@@ -828,6 +829,8 @@ namespace AiChatClient.ViewModels
 
         public IRelayCommand NewConversationCommand { get; }
 
+        public IRelayCommand<string> ApplyPromptTemplateCommand { get; }
+
         public IAsyncRelayCommand DeleteConversationCommand { get; }
 
         public IAsyncRelayCommand RenameConversationCommand { get; }
@@ -842,6 +845,11 @@ namespace AiChatClient.ViewModels
                     SendCommand.NotifyCanExecuteChanged();
                 }
             }
+        }
+
+        private void ApplyPromptTemplate(string? prompt)
+        {
+            CurrentInput = prompt ?? string.Empty;
         }
 
         public bool IsBusy

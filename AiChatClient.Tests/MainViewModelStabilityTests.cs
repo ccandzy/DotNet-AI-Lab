@@ -19,6 +19,21 @@ namespace AiChatClient.Tests;
 
 public class MainViewModelStabilityTests
 {
+    [Theory]
+    [InlineData("请基于知识库回答：")]
+    [InlineData("请为以下问题生成解决方案：")]
+    [InlineData("请查询大激发设备状态。")]
+    public async Task PromptTemplate_OnlyFillsInput(string prompt)
+    {
+        var f = await Fixture.Create();
+
+        f.Vm.ApplyPromptTemplateCommand.Execute(prompt);
+
+        Assert.Equal(prompt, f.Vm.CurrentInput);
+        Assert.Empty(f.Chat.Requests);
+        Assert.Empty(f.Mcp.Calls);
+    }
+
     [Fact]
     public async Task DeleteLastConversation_DisablesSendAndNewConversationRecovers()
     {

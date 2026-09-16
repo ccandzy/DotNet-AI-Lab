@@ -46,6 +46,20 @@ public sealed class SemanticKernelRequestMapperTests
     }
 
     [Fact]
+    public void CreateChatHistory_RequiresToolWithoutAllowingTextOnlySuccess()
+    {
+        var history = SemanticKernelRequestMapper.CreateChatHistory(
+            [new ChatRequestMessage { Role = ChatRole.User, Content = "大激发停止测量" }],
+            requireToolCall: true);
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal(AuthorRole.System, history[0].Role);
+        Assert.Contains("必须通过已提供的工具完成", history[0].Content);
+        Assert.Contains("停止测量工具", history[0].Content);
+        Assert.Equal(AuthorRole.User, history[1].Role);
+    }
+
+    [Fact]
     public void CreateExecutionSettings_MapsGenerationSettingsAndDisablesDeepSeekThinking()
     {
         var settings = SemanticKernelRequestMapper.CreateExecutionSettings(

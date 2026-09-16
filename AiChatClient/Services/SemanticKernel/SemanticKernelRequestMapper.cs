@@ -10,12 +10,22 @@ namespace AiChatClient.Services.SemanticKernel;
 
 internal static class SemanticKernelRequestMapper
 {
+    internal const string RequiredToolInstruction =
+        "本次请求必须通过已提供的工具完成。请根据用户的动作和对象选择名称、描述最匹配的一个工具并调用；" +
+        "停止或结束测量应选择停止测量工具。在取得工具结果前，不得用文字声称操作已经成功。";
+
     public static ChatHistory CreateChatHistory(
-        IEnumerable<ChatRequestMessage> messages)
+        IEnumerable<ChatRequestMessage> messages,
+        bool requireToolCall = false)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         var history = new ChatHistory();
+
+        if (requireToolCall)
+        {
+            history.AddSystemMessage(RequiredToolInstruction);
+        }
 
         foreach (var message in messages)
         {

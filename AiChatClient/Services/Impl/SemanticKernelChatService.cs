@@ -56,7 +56,9 @@ public sealed class SemanticKernelChatService : IChatService
             var chatCompletionService =
                 kernel.GetRequiredService<IChatCompletionService>();
             var history =
-                SemanticKernelRequestMapper.CreateChatHistory(request.Messages);
+                SemanticKernelRequestMapper.CreateChatHistory(
+                    request.Messages,
+                    request.RequireToolCall);
             var executionSettings =
                 SemanticKernelRequestMapper.CreateExecutionSettings(
                     request.Settings,

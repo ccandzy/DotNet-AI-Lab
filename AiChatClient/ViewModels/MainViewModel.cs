@@ -1056,7 +1056,9 @@ namespace AiChatClient.ViewModels
                 return false;
             }
 
-            if (TryGetDeviceIntent(CurrentInput, out _)) return true;
+            // 启用工具时必须具备有效模型，让设备意图交由 SK 的函数调用流程处理。
+            // 未启用工具时，保留固定设备口令直达 MCP 的可靠兜底。
+            if (!IsToolsEnabled && TryGetDeviceIntent(CurrentInput, out _)) return true;
             return SelectedAIProvider is not null
                 && AIProviderNames.IsSupported(SelectedAIProvider.Name)
                 && SelectedAIModel is { IsEnabled: true }
@@ -1069,7 +1071,7 @@ namespace AiChatClient.ViewModels
             if (!CanSend()) return;
             var conversation = CurrentConversation!;
             var input = CurrentInput.Trim();
-            // 固定设备口令不依赖大模型；普通聊天已由 CanSend 保证 Provider/Model 有效。
+            // 未启用工具时固定设备口令不依赖大模型；启用工具后统一交由 SK 判断和调用。
             var provider = SelectedAIProvider?.Name ?? string.Empty;
             var model = SelectedAIModel?.ModelId ?? string.Empty;
             var settings = CloneGenerationSettings(conversation.GenerationSettings);
@@ -1105,7 +1107,7 @@ namespace AiChatClient.ViewModels
                 if (CurrentInput.Trim() == input) CurrentInput = string.Empty;
                 requestCts.Token.ThrowIfCancellationRequested();
 
-                if (TryGetDeviceIntent(input, out var deviceIntent))
+                if (!enableTools && TryGetDeviceIntent(input, out var deviceIntent))
                 {
                     phase = "执行设备指令";
                     answer = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now)

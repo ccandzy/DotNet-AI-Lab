@@ -214,6 +214,20 @@ public class MainViewModelStabilityTests
     }
 
     [Fact]
+    public async Task ExactDeviceIntent_WithToolsEnabled_GoesThroughModel()
+    {
+        var f = await Fixture.Create();
+        f.Vm.IsToolsEnabled = true;
+        f.Vm.CurrentInput = "大激发停止测量";
+
+        await f.Vm.SendCommand.ExecuteAsync(null);
+
+        var request = Assert.Single(f.Chat.Requests);
+        Assert.True(request.EnableTools);
+        Assert.Empty(f.Mcp.Calls);
+    }
+
+    [Fact]
     public async Task ImportCancellation_RestoresButtonsAndKeepsOldIndex()
     {
         var f = await Fixture.Create();

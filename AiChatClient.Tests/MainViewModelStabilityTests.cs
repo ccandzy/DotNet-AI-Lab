@@ -224,6 +224,7 @@ public class MainViewModelStabilityTests
 
         var request = Assert.Single(f.Chat.Requests);
         Assert.True(request.EnableTools);
+        Assert.True(request.RequireToolCall);
         Assert.Empty(f.Mcp.Calls);
     }
 

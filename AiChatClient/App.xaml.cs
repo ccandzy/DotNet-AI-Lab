@@ -46,14 +46,12 @@ namespace AiChatClient
             {
                 builder.ClearProviders();
                 builder.AddDebug();
-                builder.SetMinimumLevel(LogLevel.Information);
 #if DEBUG
-                builder.AddFilter(
-                    "AiChatClient.Services.Impl.SemanticKernelChatService",
-                    LogLevel.Debug);
-                builder.AddFilter(
-                    "AiChatClient.Services.SemanticKernel.ToolInvocationEventFilter",
-                    LogLevel.Debug);
+                // 调试时保留原有 EF、HTTP、Semantic Kernel 等所有日志，
+                // 同时输出应用新增的 AI 请求、响应和工具调用明细。
+                builder.SetMinimumLevel(LogLevel.Debug);
+#else
+                builder.SetMinimumLevel(LogLevel.Information);
 #endif
             });
 

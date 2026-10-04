@@ -91,10 +91,13 @@ namespace AiChatClient
             services.AddScoped<MainViewModel>();
             services.AddScoped<MainWindow>();
 
-            
-            services.AddHttpClient(SemanticKernelFactory.HttpClientName);
 
-          
+            services.AddTransient<DeepSeekThinkingHandler>();
+
+            services
+                .AddHttpClient(SemanticKernelFactory.HttpClientName)
+                .AddHttpMessageHandler<DeepSeekThinkingHandler>();
+
 
             services.AddScoped<DatabaseInitializer>();
         }

@@ -1,11 +1,19 @@
 ﻿using System.Net.Http;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 
 namespace AiChatClient.Services.SemanticKernel;
 
 public sealed class DeepSeekThinkingHandler : DelegatingHandler
 {
+    private readonly ILogger<DeepSeekThinkingHandler> _logger;
+
+    public DeepSeekThinkingHandler(ILogger<DeepSeekThinkingHandler> logger)
+    {
+        _logger = logger;
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -63,6 +71,23 @@ public sealed class DeepSeekThinkingHandler : DelegatingHandler
 
             request.Content = replacement;
             originalContent.Dispose();
+
+            // Log only routing metadata from the final JSON, never messages,
+            // tool arguments/results, schemas, descriptions, or authorization headers.
+            var tools = body["tools"] as JsonArray;
+            var toolNames = tools?
+                .OfType<JsonObject>()
+                .Select(tool => (tool["function"] as JsonObject)?["name"]?.GetValue<string>() ?? "<unnamed>")
+                .ToArray() ?? Array.Empty<string>();
+            var toolChoice = body["tool_choice"] is JsonObject namedChoice
+                ? $"function:{(namedChoice["function"] as JsonObject)?["name"]?.GetValue<string>() ?? "<unnamed>"}"
+                : body["tool_choice"]?.GetValue<string>() ?? "<omitted>";
+
+            _logger.LogInformation(
+                "DeepSeek outgoing request: Model={Model}, Thinking={Thinking}, ToolChoice={ToolChoice}, ToolCount={ToolCount}, Tools=[{Tools}], MessageCount={MessageCount}.",
+                body["model"]?.GetValue<string>(), "disabled", toolChoice,
+                tools?.Count ?? 0, string.Join(", ", toolNames),
+                (body["messages"] as JsonArray)?.Count ?? 0);
         }
 
         // 将处理后的请求交给后续处理器，继续发送。

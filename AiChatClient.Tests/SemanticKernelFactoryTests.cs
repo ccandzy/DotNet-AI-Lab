@@ -5,6 +5,7 @@ using AiChatClient.Plugins;
 using AiChatClient.Services.SemanticKernel;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Services.Mcp;
 
 namespace AiChatClient.Tests;
 
@@ -105,7 +106,7 @@ public sealed class SemanticKernelFactoryTests
     }
 
     [Fact]
-    public void CreateKernel_RegistersNativePluginsWithoutSendingARequest()
+    public void CreateKernel_RegistersCalculatorAndConnectedMcpWithoutSendingARequest()
     {
         var factory = CreateFactory(CreateDeepSeekOptions("test-key"));
 
@@ -117,8 +118,8 @@ public sealed class SemanticKernelFactoryTests
             "calculate",
             kernel.Plugins["Utilities"]["calculate"].Name);
         Assert.Equal(
-            "current_time",
-            kernel.Plugins["Time"]["current_time"].Name);
+            "mcp_current_time",
+            kernel.Plugins["MCP"]["mcp_current_time"].Name);
     }
 
     [Fact]
@@ -156,7 +157,8 @@ public sealed class SemanticKernelFactoryTests
             new TestHttpClientFactory(),
             NullLoggerFactory.Instance,
             new CalculatorPlugin(),
-            new TimePlugin());
+            new TimePlugin(),
+            new FakeMcpClientService());
     }
 
     private static AiOptions CreateDeepSeekOptions(string apiKey)

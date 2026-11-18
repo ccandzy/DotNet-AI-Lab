@@ -206,6 +206,77 @@ public class MainViewModelStabilityTests
         finally { File.Delete(file); }
     }
 
+    [Fact]
+    public async Task McpConnect_DiscoversResources_ReadIsExplicitAndDisconnectClearsSelection()
+    {
+        var f = await Fixture.Create();
+        Assert.False(f.Vm.ReadMcpResourceCommand.CanExecute(null));
+        await f.Vm.ConnectMcpCommand.ExecuteAsync(null);
+        Assert.Single(f.Vm.McpResources);
+        Assert.Equal("project://readme", f.Vm.SelectedMcpResource!.Uri);
+        Assert.Null(f.Mcp.LastReadUri);
+        Assert.True(f.Vm.ReadMcpResourceCommand.CanExecute(null));
+
+        await f.Vm.ReadMcpResourceCommand.ExecuteAsync(null);
+        Assert.Equal("project://readme", f.Mcp.LastReadUri);
+        Assert.Equal("项目正文", f.Vm.McpResult);
+        Assert.Empty(f.Chat.Requests);
+
+        await f.Vm.DisconnectMcpCommand.ExecuteAsync(null);
+        Assert.Empty(f.Vm.McpResources);
+        Assert.Null(f.Vm.SelectedMcpResource);
+        Assert.False(f.Vm.ReadMcpResourceCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task McpReadFailure_IsVisibleAndReleasesBusyState()
+    {
+        var f = await Fixture.Create();
+        await f.Vm.ConnectMcpCommand.ExecuteAsync(null);
+        f.Mcp.FailRead = true;
+        await f.Vm.ReadMcpResourceCommand.ExecuteAsync(null);
+        Assert.Contains("资源读取失败", f.Vm.McpResult);
+        Assert.False(f.Vm.IsMcpBusy);
+        Assert.True(f.Vm.ReadMcpResourceCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ToolCallingEvents_AreRecordedAndRetainedAfterAnswer()
+    {
+        var f = await Fixture.Create();
+        f.Chat.ToolEvents = ["mcp_list_resources", "mcp_read_resource", "mcp_read_resource"];
+        await f.Vm.SendCommand.ExecuteAsync(null);
+        Assert.Equal(
+            new[] { "mcp_list_resources", "mcp_read_resource", "mcp_read_resource" },
+            f.Vm.CurrentToolCalls.ToArray());
+        Assert.True(f.Vm.HasToolCalls);
+        Assert.Equal("answer", f.Vm.Messages.Last().Content);
+    }
+
+    [Fact]
+    public async Task NextRequestWithoutTools_ClearsToolCallHistory()
+    {
+        var f = await Fixture.Create();
+        f.Chat.ToolEvents = ["mcp_read_resource"];
+        await f.Vm.SendCommand.ExecuteAsync(null);
+        f.Chat.ToolEvents = null;
+        f.Vm.CurrentInput = "again";
+        await f.Vm.SendCommand.ExecuteAsync(null);
+        Assert.Empty(f.Vm.CurrentToolCalls);
+        Assert.False(f.Vm.HasToolCalls);
+    }
+
+    [Fact]
+    public async Task SwitchConversation_ClearsToolCallHistory()
+    {
+        var f = await Fixture.Create();
+        f.Chat.ToolEvents = ["mcp_current_time"];
+        await f.Vm.SendCommand.ExecuteAsync(null);
+        await ((IAsyncRelayCommand)f.Vm.NewConversationCommand).ExecuteAsync(null);
+        Assert.Empty(f.Vm.CurrentToolCalls);
+        Assert.False(f.Vm.HasToolCalls);
+    }
+
     private sealed class Fixture
     {
         public Chat Chat = new();
@@ -213,6 +284,7 @@ public class MainViewModelStabilityTests
         public ConversationStore Conversations = new();
         public Dialog Dialog = new();
         public Rag Rag = new();
+        public Mcp Mcp = new();
         public MainViewModel Vm = null!;
         public static async Task<Fixture> Create()
         {
@@ -222,7 +294,7 @@ public class MainViewModelStabilityTests
                 Name = "DeepSeek", Models = [new AIModelOptions { ModelId = "demo", Name = "demo", IsEnabled = true }]
             }] };
             f.Vm = new MainViewModel(f.Chat, f.Conversations, f.Messages, new Roles(),
-                f.Dialog, NullLogger<MainViewModel>.Instance, new Monitor(options), f.Rag, new Mcp());
+                f.Dialog, NullLogger<MainViewModel>.Instance, new Monitor(options), f.Rag, f.Mcp);
             await f.Vm.InitializeAsync();
             f.Vm.CurrentInput = "hello";
             return f;
@@ -232,11 +304,17 @@ public class MainViewModelStabilityTests
     {
         public List<ChatRequest> Requests = [];
         public TaskCompletionSource? Gate;
+        public List<string>? ToolEvents;
         public async IAsyncEnumerable<ChatStreamEvent> SendStreamingAsync(ChatRequest request,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
             if (Gate is not null) await Gate.Task.WaitAsync(cancellationToken);
+            if (ToolEvents is not null)
+            {
+                foreach (var toolName in ToolEvents)
+                    yield return new ChatStreamEvent { Type = ChatStreamEventType.ToolCalling, ToolName = toolName };
+            }
             yield return new ChatStreamEvent { Type = ChatStreamEventType.TextDelta, Content = "answer" };
         }
     }
@@ -303,12 +381,32 @@ public class MainViewModelStabilityTests
     }
     private sealed class Mcp : IMcpClientService
     {
-        public McpConnectionState State => McpConnectionState.Disconnected;
+        public McpConnectionState State { get; private set; } = McpConnectionState.Disconnected;
         public McpServerInfo? ServerInfo => null;
-        public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task DisconnectAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public string? LastReadUri;
+        public bool FailRead;
+        public Task ConnectAsync(CancellationToken ct = default)
+        {
+            State = McpConnectionState.Connected;
+            return Task.CompletedTask;
+        }
+        public Task DisconnectAsync(CancellationToken ct = default)
+        {
+            State = McpConnectionState.Disconnected;
+            return Task.CompletedTask;
+        }
         public Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<McpToolInfo>>(Array.Empty<McpToolInfo>());
         public Task<string> CallToolAsync(string name, CancellationToken ct = default) => Task.FromResult("");
+        public Task<IReadOnlyList<McpResourceInfo>> ListResourcesAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<McpResourceInfo>>(
+                new[] { new McpResourceInfo("project://readme", "项目说明", "text/markdown") });
+        public Task<string> ReadResourceAsync(string uri, CancellationToken ct = default)
+        {
+            LastReadUri = uri;
+            return FailRead
+                ? Task.FromException<string>(new InvalidOperationException("资源读取失败"))
+                : Task.FromResult("项目正文");
+        }
         public void Dispose() { }
     }
 }

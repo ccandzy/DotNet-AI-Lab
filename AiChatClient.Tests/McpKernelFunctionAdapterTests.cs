@@ -39,6 +39,78 @@ namespace AiChatClient.Tests
                     "get_current_time",
                     mcpClientService.LastCalledToolName);
             }
+
+            [Fact]
+            public async Task McpKernelFunctionAdapterListResourcesTest()
+            {
+                var mcpClientService =
+                    new FakeMcpClientService();
+
+                var kernel = Kernel.CreateBuilder().Build();
+
+                kernel.Plugins.AddFromObject(
+                    new McpKernelFunctionAdapter(mcpClientService),
+                    "MCP");
+
+                var function = kernel.Plugins.GetFunction(
+                    "MCP",
+                    "mcp_list_resources");
+
+                var result = await kernel.InvokeAsync(function);
+
+                Assert.Equal(
+                    "project://readme：项目说明",
+                    result.ToString());
+            }
+
+            [Fact]
+            public async Task McpKernelFunctionAdapterReadResourceTest()
+            {
+                var mcpClientService =
+                    new FakeMcpClientService();
+
+                var kernel = Kernel.CreateBuilder().Build();
+
+                kernel.Plugins.AddFromObject(
+                    new McpKernelFunctionAdapter(mcpClientService),
+                    "MCP");
+
+                var function = kernel.Plugins.GetFunction(
+                    "MCP",
+                    "mcp_read_resource");
+
+                var result = await kernel.InvokeAsync(function, new()
+                {
+                    ["uri"] = "project://readme"
+                });
+
+                Assert.Equal(
+                    "模拟资源正文",
+                    result.ToString());
+            }
+
+            [Fact]
+            public async Task McpKernelFunctionAdapterReadResourceInvalidUriTest()
+            {
+                var mcpClientService =
+                    new FakeMcpClientService();
+
+                var kernel = Kernel.CreateBuilder().Build();
+
+                kernel.Plugins.AddFromObject(
+                    new McpKernelFunctionAdapter(mcpClientService),
+                    "MCP");
+
+                var function = kernel.Plugins.GetFunction(
+                    "MCP",
+                    "mcp_read_resource");
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => kernel.InvokeAsync(function, new()
+                    {
+                        ["uri"] = "project://unknown"
+                    }));
+            }
         }
 
 }

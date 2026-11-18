@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.SemanticKernel;
+using AiChatClient.Services.Mcp;
 
 namespace AiChatClient.Services.SemanticKernel;
 
@@ -17,21 +18,25 @@ internal sealed class SemanticKernelFactory : IKernelFactory
     private readonly IOptionsMonitor<AiOptions> _options;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<SemanticKernelFactory> _logger;
     private readonly CalculatorPlugin _calculatorPlugin;
     private readonly TimePlugin _timePlugin;
-
+    private readonly IMcpClientService _mcpClientService;
     public SemanticKernelFactory(
         IOptionsMonitor<AiOptions> options,
         IHttpClientFactory httpClientFactory,
         ILoggerFactory loggerFactory,
         CalculatorPlugin calculatorPlugin,
-        TimePlugin timePlugin)
+        TimePlugin timePlugin,
+        IMcpClientService mcpClientService)
     {
         _options = options;
         _httpClientFactory = httpClientFactory;
         _loggerFactory = loggerFactory;
+        _logger = loggerFactory.CreateLogger<SemanticKernelFactory>();
         _calculatorPlugin = calculatorPlugin;
         _timePlugin = timePlugin;
+        _mcpClientService = mcpClientService;
     }
 
     public Kernel CreateKernel(
@@ -40,6 +45,12 @@ internal sealed class SemanticKernelFactory : IKernelFactory
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(eventWriter);
+
+        _logger.LogInformation(
+            "Chat setup: Provider={Provider}, Model={Model}, EnableTools={EnableTools}, RequireToolCall={RequireToolCall}, ToolPolicy={ToolPolicy}, McpState={McpState}, MessageCount={MessageCount}.",
+            request.Provider, request.Model, request.EnableTools, request.RequireToolCall,
+            !request.EnableTools ? "Disabled" : request.RequireToolCall ? "Required" : "Auto",
+            _mcpClientService.State, request.Messages.Count);
 
         if (!AIProviderNames.IsSupported(request.Provider))
         {
@@ -114,10 +125,33 @@ internal sealed class SemanticKernelFactory : IKernelFactory
         if (request.EnableTools)
         {
             kernel.Plugins.AddFromObject(_calculatorPlugin, "Utilities");
-            kernel.Plugins.AddFromObject(_timePlugin, "Time");
+            //kernel.Plugins.AddFromObject(_timePlugin, "Time");
+            if(_mcpClientService.State == McpConnectionState.Connected)
+            {
+                kernel.Plugins.AddFromObject(new McpKernelFunctionAdapter(_mcpClientService), "MCP");
+                _logger.LogInformation(
+                    "MCP plugin registered: mcp_current_time, mcp_list_resources, mcp_read_resource.");
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "MCP plugin skipped: client is not connected. McpState={McpState}.",
+                    _mcpClientService.State);
+            }
             kernel.AutoFunctionInvocationFilters.Add(
                 new ToolInvocationEventFilter(eventWriter));
         }
+        else
+        {
+            _logger.LogInformation("Tool registration skipped: EnableTools=false.");
+        }
+
+        var functions = kernel.Plugins
+            .SelectMany(plugin => plugin.Select(function => $"{plugin.Name}.{function.Name}"))
+            .ToArray();
+        _logger.LogInformation(
+            "Kernel ready: FunctionCount={FunctionCount}, Functions=[{Functions}].",
+            functions.Length, string.Join(", ", functions));
 
         return kernel;
     }

@@ -44,6 +44,31 @@ public sealed class McpStabilityTests
         await client.DisconnectAsync();
     }
 
+    [Fact]
+    public async Task Resources_ListThenRead_PassesUriAndCombinesText()
+    {
+        using var client = new McpClientService(NullLogger<McpClientService>.Instance,
+            () => StartInfo("ok"), TimeSpan.FromSeconds(3));
+        await client.ConnectAsync();
+        var resource = Assert.Single(await client.ListResourcesAsync());
+        Assert.Equal(new McpResourceInfo("project://readme", "README", "text/markdown"), resource);
+        Assert.Equal("first" + Environment.NewLine + "second", await client.ReadResourceAsync(resource.Uri));
+        await client.DisconnectAsync();
+    }
+
+    [Fact]
+    public async Task Resources_UnknownUriDoesNotBreakConnection()
+    {
+        using var client = new McpClientService(NullLogger<McpClientService>.Instance,
+            () => StartInfo("ok"), TimeSpan.FromSeconds(3));
+        await client.ConnectAsync();
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.ReadResourceAsync("project://missing"));
+        Assert.Equal(McpConnectionState.Connected, client.State);
+        Assert.Single(await client.ListResourcesAsync());
+        Assert.Equal("ok", await client.CallToolAsync("get_current_time"));
+        await client.DisconnectAsync();
+    }
+
     private static bool IsRunning(int pid)
     {
         try { using var process = Process.GetProcessById(pid); return !process.HasExited; }
@@ -61,6 +86,16 @@ public sealed class McpStabilityTests
                 $id=$request.id
                 if ($request.method -eq 'initialize') {
                     $result=@{protocolVersion='2025-11-25';serverInfo=@{name='test';version=[string]$PID}}
+                } elseif ($request.method -eq 'resources/list') {
+                    $result=@{resources=@(@{uri='project://readme';name='README';mimeType='text/markdown'})}
+                } elseif ($request.method -eq 'resources/read') {
+                    if ($request.params.uri -ne 'project://readme') {
+                        $response=@{jsonrpc='2.0';id=$id;error=@{code=-32002;message='Resource not found'}} | ConvertTo-Json -Depth 8 -Compress
+                        [Console]::WriteLine($response)
+                        [Console]::Out.Flush()
+                        continue
+                    }
+                    $result=@{contents=@(@{uri='project://readme';text='first'},@{uri='project://readme';text='second'})}
                 } else {
                     $calls++
                     if ($calls -eq 1) {

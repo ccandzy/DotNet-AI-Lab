@@ -131,6 +131,19 @@ internal static class Program
                     }
                 }),
                 "tools/call" => HandleToolCall(root, id!.Value),
+                "resources/list" => CreateSuccessResponse(id!.Value, new
+                {
+                    resources = new[]
+                    {
+                        new
+                        {
+                            uri = "project://readme",
+                            name = "项目说明",
+                            mimeType = "text/markdown"
+                        }
+                    }
+                }),
+                "resources/read" => HandleResourceRead(root, id!.Value),
                 _ => CreateErrorResponse(id, -32601, $"Method not found: {method}")
             };
         }
@@ -147,7 +160,66 @@ internal static class Program
             return CreateErrorResponse(null, -32603, "Internal error");
         }
     }
+    /// <summary>
+    /// 按 URI 读取一份 MCP Resource。
+    /// </summary>
+    private static string HandleResourceRead(
+        JsonElement root,
+        JsonElement id)
+    {
+        // 1. 检查 params 是否存在且为对象，
+        //    并检查 params.uri 是否存在且为字符串。
+        if (!root.TryGetProperty("params", out var parameters)
+            || parameters.ValueKind != JsonValueKind.Object
+            || !parameters.TryGetProperty("uri", out var uriElement)
+            || uriElement.ValueKind != JsonValueKind.String)
+        {
+            return CreateErrorResponse(
+                id,
+                -32602,
+                "params.uri 必须是字符串。");
+        }
 
+        // 2. 取出 URI，拒绝空字符串。
+        var uri = uriElement.GetString();
+
+        if (string.IsNullOrWhiteSpace(uri))
+        {
+            return CreateErrorResponse(
+                id,
+                -32602,
+                "Resource URI 不能为空。");
+        }
+
+        // 3. 当前只提供 project://readme 这一份资源。
+        if (uri != "project://readme")
+        {
+            return CreateErrorResponse(
+                id,
+                -32002,
+                $"Resource 不存在：{uri}");
+        }
+
+        // 4. 第一版先返回固定正文。
+        var content =
+            "AiChatClient 使用 .NET 8、WPF、Semantic Kernel、RAG 和 MCP。"
+            + Environment.NewLine
+            + "项目实验编号：MCP-DEMO-7319。";
+
+        // 5. 返回资源内容。
+        return CreateSuccessResponse(id, new
+        {
+            contents = new[]
+            {
+            new
+            {
+                uri = uri,
+                mimeType = "text/markdown",
+                text = content
+            }
+        }
+        });
+    }
     /// <summary>
     /// 处理 MCP 建立连接后的第一个请求：initialize。
     /// </summary>
@@ -175,7 +247,8 @@ internal static class Program
             // capabilities 告诉 Client：“这个 Server 能提供什么”。
             capabilities = new
             {
-                tools = new { }
+                tools = new { },
+                resources= new { }
             },
             // serverInfo 会显示在 Host 的 MCP 能力区域。
             serverInfo = new

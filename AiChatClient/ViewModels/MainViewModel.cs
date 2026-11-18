@@ -75,8 +75,9 @@ namespace AiChatClient.ViewModels
         private bool _isMcpBusy;
         private string _mcpConnectionStatus = "未连接";
         private string _mcpServerDisplayName = "—";
-        private string _mcpResult = "连接 Server 后可以调用工具。";
+        private string _mcpResult = "连接 Server 后可以调用工具或读取资源。";
         private McpToolInfo? _selectedMcpTool;
+        private McpResourceInfo? _selectedMcpResource;
         private readonly ObservableCollection<ChatMessage> _emptyMessages = new();
         private Conversation? _currentConversation;
         private AIRole? _selectedRole;
@@ -106,6 +107,8 @@ namespace AiChatClient.ViewModels
 
             Conversations = _conversationService.Conversations;
 
+            CurrentToolCalls.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasToolCalls));
+
             CancelKnowledgeImportCommand = new RelayCommand(
                 () => _knowledgeImportCts?.Cancel(), () => IsImportingKnowledge);
             // Commands
@@ -133,6 +136,9 @@ namespace AiChatClient.ViewModels
             CallMcpToolCommand = new AsyncRelayCommand(
                 CallMcpToolAsync,
                 () => !IsMcpBusy && IsMcpConnected && SelectedMcpTool is not null);
+            ReadMcpResourceCommand = new AsyncRelayCommand(
+                ReadMcpResourceAsync,
+                () => !IsMcpBusy && IsMcpConnected && SelectedMcpResource is not null);
         }
 
         public ObservableCollection<Conversation> Conversations { get; }
@@ -143,6 +149,20 @@ namespace AiChatClient.ViewModels
         /// MCP Server 通过 tools/list 返回的 Tool，供右侧列表绑定。
         /// </summary>
         public ObservableCollection<McpToolInfo> McpTools { get; } = new();
+
+        public ObservableCollection<McpResourceInfo> McpResources { get; } = new();
+
+        public McpResourceInfo? SelectedMcpResource
+        {
+            get => _selectedMcpResource;
+            set
+            {
+                if (SetProperty(ref _selectedMcpResource, value))
+                {
+                    ReadMcpResourceCommand.NotifyCanExecuteChanged();
+                }
+            }
+        }
 
         public string McpConnectionStatus
         {
@@ -197,6 +217,8 @@ namespace AiChatClient.ViewModels
         public IAsyncRelayCommand DisconnectMcpCommand { get; }
 
         public IAsyncRelayCommand CallMcpToolCommand { get; }
+
+        public IAsyncRelayCommand ReadMcpResourceCommand { get; }
 
         /// <summary>
         /// 从 appsettings.json 的 AI:Providers 节点加载的服务厂家列表。
@@ -294,6 +316,8 @@ namespace AiChatClient.ViewModels
                 {
                     // notify that Messages changed
                     OnPropertyChanged(nameof(Messages));
+                    // 工具调用记录只属于发起它的会话，切换会话后不留存。
+                    CurrentToolCalls.Clear();
                     // 切换会话时同步显示其角色，不触发用户手动切换角色的限制。
                     SynchronizeSelectedRole();
                     // 先刷新会话配置是否可编辑，供后续同步逻辑使用。
@@ -820,6 +844,16 @@ namespace AiChatClient.ViewModels
             IsConversationConfigurationEditable = CurrentConversation.Messages.Count == 0;
         }
 
+        /// <summary>
+        /// 最近一次请求实际调用过的工具名，内存记录；回答结束后保留，下一次请求开始时清空。
+        /// </summary>
+        public ObservableCollection<string> CurrentToolCalls { get; } = new();
+
+        /// <summary>
+        /// 是否存在可展示的工具调用记录。
+        /// </summary>
+        public bool HasToolCalls => CurrentToolCalls.Count > 0;
+
         public ObservableCollection<ChatMessage> Messages => CurrentConversation?.Messages ?? _emptyMessages;
 
         public IRelayCommand NewConversationCommand { get; }
@@ -906,8 +940,7 @@ namespace AiChatClient.ViewModels
             McpConnectionStatus = "正在连接…";
             McpServerDisplayName = "—";
             McpResult = "正在启动本地 MCP Server…";
-            McpTools.Clear();
-            SelectedMcpTool = null;
+            ClearMcpItems();
 
             try
             {
@@ -920,14 +953,21 @@ namespace AiChatClient.ViewModels
                 }
 
                 SelectedMcpTool = McpTools.FirstOrDefault();
+
+                // 目录与正文分开：连接时只发现资源，点击读取后才加载正文。
+                var resources = await _mcpClientService.ListResourcesAsync();
+                foreach (var resource in resources)
+                {
+                    McpResources.Add(resource);
+                }
+                SelectedMcpResource = McpResources.FirstOrDefault();
+
                 var serverInfo = _mcpClientService.ServerInfo;
                 McpServerDisplayName = serverInfo is null
                     ? "未知 Server"
                     : $"{serverInfo.Name}  v{serverInfo.Version}";
                 McpConnectionStatus = "已连接";
-                McpResult = McpTools.Count == 0
-                    ? "Server 没有提供 Tool。"
-                    : "请选择 Tool 并点击调用。";
+                McpResult = $"发现 {McpTools.Count} 个 Tool，{McpResources.Count} 个 Resource。请选择后操作。";
             }
             catch (Exception exception)
             {
@@ -944,8 +984,7 @@ namespace AiChatClient.ViewModels
                 McpConnectionStatus = "连接失败";
                 McpServerDisplayName = "—";
                 McpResult = exception.Message;
-                McpTools.Clear();
-                SelectedMcpTool = null;
+                ClearMcpItems();
             }
             finally
             {
@@ -969,9 +1008,8 @@ namespace AiChatClient.ViewModels
                 await _mcpClientService.DisconnectAsync();
                 McpConnectionStatus = "未连接";
                 McpServerDisplayName = "—";
-                McpResult = "连接 Server 后可以调用工具。";
-                McpTools.Clear();
-                SelectedMcpTool = null;
+                McpResult = "连接 Server 后可以调用工具或读取资源。";
+                ClearMcpItems();
             }
             catch (Exception exception)
             {
@@ -1013,8 +1051,7 @@ namespace AiChatClient.ViewModels
                 {
                     McpConnectionStatus = "连接已断开";
                     McpServerDisplayName = "—";
-                    McpTools.Clear();
-                    SelectedMcpTool = null;
+                    ClearMcpItems();
                 }
             }
             finally
@@ -1025,14 +1062,54 @@ namespace AiChatClient.ViewModels
             }
         }
 
+        private async Task ReadMcpResourceAsync()
+        {
+            if (IsMcpBusy || !IsMcpConnected) return;
+            var resource = SelectedMcpResource;
+            if (resource is null) return;
+
+            IsMcpBusy = true;
+            McpResult = $"正在读取 {resource.Name}…";
+            try
+            {
+                McpResult = await _mcpClientService.ReadResourceAsync(resource.Uri);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "读取 MCP Resource 失败。");
+                McpResult = exception.Message;
+                if (!IsMcpConnected)
+                {
+                    McpConnectionStatus = "连接已断开";
+                    McpServerDisplayName = "—";
+                    ClearMcpItems();
+                }
+            }
+            finally
+            {
+                IsMcpBusy = false;
+                OnPropertyChanged(nameof(IsMcpConnected));
+                RefreshMcpCommandStates();
+            }
+        }
+
+        private void ClearMcpItems()
+        {
+            McpTools.Clear();
+            SelectedMcpTool = null;
+            McpResources.Clear();
+            SelectedMcpResource = null;
+        }
+
         /// <summary>
-        /// 连接状态或忙碌状态改变后，重新计算三个 MCP 按钮能否点击。
+        /// 连接状态或忙碌状态改变后，重新计算 MCP 按钮能否点击。
         /// </summary>
         private void RefreshMcpCommandStates()
         {
             ConnectMcpCommand.NotifyCanExecuteChanged();
             DisconnectMcpCommand.NotifyCanExecuteChanged();
             CallMcpToolCommand.NotifyCanExecuteChanged();
+            ReadMcpResourceCommand.NotifyCanExecuteChanged();
         }
 
         private bool CanSend() => CanManageConversations
@@ -1059,6 +1136,7 @@ namespace AiChatClient.ViewModels
             _currentRequestCts = requestCts;
             IsBusy = true;
             StatusMessage = string.Empty;
+            CurrentToolCalls.Clear();
             ChatMessage? answer = null;
             var phase = "保存消息";
             try
@@ -1114,7 +1192,8 @@ namespace AiChatClient.ViewModels
                     Messages = enableRag ? RagPromptComposer.AddContextToLatestUserMessage(history, input, results) : history,
                     Provider = provider, Model = model, Settings = settings,
                     EnableTools = enableTools,
-                    RequireToolCall = enableTools && ToolIntentDetector.RequiresToolCall(input)
+                    RequireToolCall = false
+                    //RequireToolCall = enableTools && ToolIntentDetector.RequiresToolCall(input)
                 };
                 answer = new ChatMessage(ChatRole.Assistant, string.Empty, DateTime.Now) { IsTransient = true };
                 conversation.Messages.Add(answer);
@@ -1125,6 +1204,10 @@ namespace AiChatClient.ViewModels
                     {
                         answer.Content = $"正在调用工具：{ev.ToolName}…";
                         displayingTool = true;
+                        if (ev.ToolName is { Length: > 0 } toolName)
+                        {
+                            CurrentToolCalls.Add(toolName);
+                        }
                     }
                     else if (ev.Type == ChatStreamEventType.TextDelta)
                     {

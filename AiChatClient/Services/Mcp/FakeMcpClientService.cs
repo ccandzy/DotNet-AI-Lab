@@ -43,6 +43,24 @@ namespace Services.Mcp
                 "2026-10-04T21:30:00+08:00");
         }
 
+        public Task<IReadOnlyList<McpResourceInfo>> ListResourcesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<McpResourceInfo>>(
+                new[] { new McpResourceInfo("project://readme", "项目说明", "text/markdown") });
+        }
+
+        public Task<string> ReadResourceAsync(
+            string uri,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return uri == "project://readme"
+                ? Task.FromResult("模拟资源正文")
+                : Task.FromException<string>(new InvalidOperationException("Resource 不存在。"));
+        }
+
         public Task DisconnectAsync(
             CancellationToken cancellationToken = default)
         {

@@ -161,6 +161,8 @@ internal sealed class McpClientService : IMcpClientService
                 "notifications/initialized",
                 cancellationToken);
             State = McpConnectionState.Connected;
+            _logger.LogInformation("MCP connected: Server={Server}, Version={Version}.",
+                ServerInfo.Name, ServerInfo.Version);
         }
         catch
         {
@@ -215,6 +217,83 @@ internal sealed class McpClientService : IMcpClientService
         }
     }
 
+    /// <summary>列出资源目录。沿用 Tool 请求的连接检查和 stdio 串行锁。</summary>
+    public async Task<IReadOnlyList<McpResourceInfo>> ListResourcesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        await _operationLock.WaitAsync(cancellationToken);
+        try
+        {
+            EnsureConnected();
+            var result = await SendRequestCoreAsync("resources/list", new { }, cancellationToken);
+            var resources = new List<McpResourceInfo>();
+            foreach (var item in result.GetProperty("resources").EnumerateArray())
+            {
+                resources.Add(new McpResourceInfo(
+                    item.GetProperty("uri").GetString()!,
+                    item.GetProperty("name").GetString()!,
+                    item.TryGetProperty("mimeType", out var mimeType) ? mimeType.GetString() : null));
+            }
+
+            _logger.LogInformation("MCP resources/list succeeded: ResourceCount={ResourceCount}.", resources.Count);
+            return resources;
+        }
+        catch (RemoteToolException) { throw; }
+        catch
+        {
+            AbortConnection();
+            throw;
+        }
+        finally
+        {
+            _operationLock.Release();
+        }
+    }
+
+    /// <summary>读取文本资源。第一版不展示二进制 Resource。</summary>
+    public async Task<string> ReadResourceAsync(
+        string uri,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(uri);
+        ThrowIfDisposed();
+        await _operationLock.WaitAsync(cancellationToken);
+        try
+        {
+            EnsureConnected();
+            _logger.LogInformation("MCP resources/read started.");
+            var result = await SendRequestCoreAsync("resources/read", new { uri }, cancellationToken);
+            var texts = new List<string>();
+            foreach (var item in result.GetProperty("contents").EnumerateArray())
+            {
+                if (item.TryGetProperty("text", out var text))
+                {
+                    texts.Add(text.GetString() ?? string.Empty);
+                }
+            }
+
+            if (texts.Count == 0)
+            {
+                throw new RemoteToolException("Resource 未返回文本内容，当前仅支持文本资源。");
+            }
+
+            var content = string.Join(Environment.NewLine, texts);
+            _logger.LogInformation("MCP resources/read succeeded: ResultLength={ResultLength}.", content.Length);
+            return content;
+        }
+        catch (RemoteToolException) { throw; }
+        catch
+        {
+            AbortConnection();
+            throw;
+        }
+        finally
+        {
+            _operationLock.Release();
+        }
+    }
+
     /// <summary>
     /// 发送 tools/call 调用一个无参数 Tool，并提取第一段文本结果。
     /// </summary>
@@ -228,6 +307,9 @@ internal sealed class McpClientService : IMcpClientService
         try
         {
             EnsureConnected();
+            _logger.LogInformation("MCP tools/call started: Tool={Tool}, State={State}.",
+                toolName, State);
+            var stopwatch = Stopwatch.StartNew();
             var result = await SendRequestCoreAsync(
                 "tools/call",
                 new
@@ -252,12 +334,30 @@ internal sealed class McpClientService : IMcpClientService
                 throw new RemoteToolException(content);
             }
 
+            _logger.LogInformation(
+                "MCP tools/call succeeded: Tool={Tool}, ResultLength={ResultLength}, ElapsedMs={ElapsedMs}.",
+                toolName, content.Length, stopwatch.ElapsedMilliseconds);
             return content;
         }
-        catch (RemoteToolException) { throw; }
-        catch
+        catch (RemoteToolException)
+        {
+            _logger.LogWarning("MCP tools/call returned a tool error: Tool={Tool}, State={State}.",
+                toolName, State);
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             AbortConnection();
+            _logger.LogInformation("MCP tools/call canceled: Tool={Tool}, State={State}.",
+                toolName, State);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            AbortConnection();
+            _logger.LogWarning(
+                "MCP tools/call failed: Tool={Tool}, ErrorType={ErrorType}, State={State}.",
+                toolName, exception.GetType().Name, State);
             throw;
         }
         finally

@@ -5,7 +5,7 @@ namespace AiChatClient.Services.Mcp;
 /// </summary>
 /// <remarks>
 /// 该接口只负责 MCP 通信，不负责决定大模型是否调用 Tool。
-/// 当前页面通过这些方法手动连接 Server、发现 Tool 并发起调用。
+/// 当前页面通过这些方法连接 Server、发现和调用 Tool，以及列出和读取 Resource。
 /// </remarks>
 public interface IMcpClientService : IDisposable
 {
@@ -35,6 +35,15 @@ public interface IMcpClientService : IDisposable
     /// </summary>
     Task<string> CallToolAsync(
         string toolName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>获取 Server 提供的资源目录，不包含正文。</summary>
+    Task<IReadOnlyList<McpResourceInfo>> ListResourcesAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>按 URI 读取文本资源，合并返回的文本内容。</summary>
+    Task<string> ReadResourceAsync(
+        string uri,
         CancellationToken cancellationToken = default);
 
     /// <summary>

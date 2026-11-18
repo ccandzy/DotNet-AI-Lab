@@ -1,5 +1,7 @@
 ﻿using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
 using AiChatClient.ViewModels;
 
 namespace AiChatClient
@@ -9,12 +11,62 @@ namespace AiChatClient
     /// </summary>
     public partial class MainWindow : Window
     {
+        private const double LeftPanelWidth = 290;
+        private const double RightPanelWidth = 300;
+        private bool _isLeftPanelOpen = true;
+        private bool _isRightPanelOpen = true;
+
         public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
             DataContext = viewModel;
 
             InputTextBox.PreviewKeyDown += InputTextBox_PreviewKeyDown;
+        }
+
+        private void LeftPanelToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            _isLeftPanelOpen = !_isLeftPanelOpen;
+            AnimatePanel(LeftPanel, _isLeftPanelOpen, LeftPanelWidth);
+            UpdatePanelToggleGlyphs();
+        }
+
+        private void RightPanelToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            _isRightPanelOpen = !_isRightPanelOpen;
+            AnimatePanel(RightPanel, _isRightPanelOpen, RightPanelWidth);
+            UpdatePanelToggleGlyphs();
+        }
+
+        private static void AnimatePanel(Border panel, bool open, double targetWidth)
+        {
+            if (open)
+            {
+                panel.Visibility = Visibility.Visible;
+            }
+
+            var animation = new DoubleAnimation
+            {
+                To = open ? targetWidth : 0,
+                Duration = TimeSpan.FromMilliseconds(220),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+
+            if (!open)
+            {
+                animation.Completed += (_, _) => panel.Visibility = Visibility.Collapsed;
+            }
+
+            panel.BeginAnimation(WidthProperty, animation);
+        }
+
+        /// <summary>
+        /// 箭头始终指向面板将要展开的方向，关闭后指向面板原来的位置。
+        /// </summary>
+        private void UpdatePanelToggleGlyphs()
+        {
+            LeftPanelToggleButton.Content = _isLeftPanelOpen ? "«" : "»";
+            RightPanelToggleButton.Content = _isRightPanelOpen ? "»" : "«";
         }
 
         private void InputTextBox_PreviewKeyDown(object? sender, KeyEventArgs e)

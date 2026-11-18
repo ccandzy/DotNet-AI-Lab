@@ -9,102 +9,136 @@
     html, body { height: 100%; margin: 0; }
     body {
       overflow-y: auto;
-      background: transparent;
-      color: #203c44;
+      background: #ffffff;
+      color: #0d0d0d;
       font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
       font-size: 14px;
     }
-    #messages { box-sizing: border-box; min-height: 100%; padding: 14px 18px; }
-    .message-row { display: flex; margin: 5px 0; }
+    #messages { box-sizing: border-box; min-height: 100%; max-width: 720px; margin: 0 auto; padding: 20px 8px 12px; }
+    .message-row { display: flex; margin: 10px 0; }
     .message-row.user { justify-content: flex-end; }
     .message-row.assistant { justify-content: flex-start; }
     .bubble {
       box-sizing: border-box;
-      max-width: min(700px, 82%);
-      padding: 10px 14px;
-      border-radius: 9px;
+      max-width: 92%;
       overflow-wrap: anywhere;
       word-break: break-word;
     }
-    .user .bubble { background: #ddf0f0; color: #25454d; }
-    .assistant .bubble { background: #fff; border: 1px solid #e0eaec; }
-    .message-content { line-height: 1.6; }
+    /*  Codex: user prompt is a quiet gray block, assistant is plain text  */
+    .user .bubble {
+      background: #f7f7f8;
+      color: #0d0d0d;
+      padding: 10px 14px;
+      border-radius: 14px;
+      border-bottom-right-radius: 4px;
+    }
+    .assistant .bubble {
+      background: transparent;
+      color: #0d0d0d;
+      padding: 0;
+    }
+    .message-content { line-height: 1.65; }
     .message-content > :first-child { margin-top: 0; }
     .message-content > :last-child { margin-bottom: 0; }
-    .message-content p { margin: 4px 0; }
+    .message-content p { margin: 6px 0; }
     .message-content h1, .message-content h2, .message-content h3, .message-content h4 {
-      margin: 12px 0 6px;
-      color: #1d3e45;
+      margin: 18px 0 8px;
+      color: #0d0d0d;
       line-height: 1.35;
+      font-weight: 600;
     }
-    .message-content h1 { font-size: 1.25em; }
-    .message-content h2 { font-size: 1.15em; }
+    .message-content h1 { font-size: 1.3em; }
+    .message-content h2 { font-size: 1.18em; }
     .message-content h3 { font-size: 1.08em; }
-    .message-content ul, .message-content ol { margin: 4px 0; padding-left: 22px; }
-    .message-content li { margin: 2px 0; }
+    .message-content ul, .message-content ol { margin: 6px 0; padding-left: 24px; }
+    .message-content li { margin: 3px 0; }
     .message-content blockquote {
-      margin: 8px 0;
-      padding-left: 12px;
-      border-left: 3px solid #b8d1d5;
-      color: #557078;
+      margin: 10px 0;
+      padding-left: 14px;
+      border-left: 2px solid #d9d9de;
+      color: #8e8e93;
     }
     .message-content pre {
       overflow: auto;
-      margin: 8px 0;
-      padding: 12px;
-      border-radius: 6px;
-      background: #eef4f5;
+      margin: 10px 0;
+      padding: 14px;
+      border-radius: 10px;
+      background: #f7f7f8;
+      border: 1px solid #ececec;
     }
     .message-content code {
-      font-family: Consolas, "Courier New", monospace;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
       font-size: .9em;
     }
     .message-content :not(pre) > code {
-      padding: 1px 4px;
-      border-radius: 4px;
-      background: #eef4f5;
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #f7f7f8;
+      color: #0d0d0d;
     }
-    .message-content table { width: 100%; margin: 8px 0; border-collapse: collapse; }
-    .message-content th, .message-content td { padding: 6px; border: 1px solid #cddde0; text-align: left; }
-    .message-content th { background: #eef5f6; }
-    .message-content img { max-width: 100%; height: auto; border-radius: 4px; }
-    .message-content a { color: #27727c; }
+    .message-content table { width: 100%; margin: 10px 0; border-collapse: collapse; }
+    .message-content th, .message-content td { padding: 8px 10px; border: 1px solid #ececec; text-align: left; }
+    .message-content th { background: #f7f7f8; font-weight: 600; }
+    .message-content img { max-width: 100%; height: auto; border-radius: 8px; }
+    .message-content a { color: #0d0d0d; text-decoration: underline; text-underline-offset: 2px; }
     .message-sources {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid #e0eaec;
-      color: #49666d;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #ececec;
+      color: #8e8e93;
       font-size: 12px;
     }
     .message-sources summary {
       width: fit-content;
       cursor: pointer;
-      color: #27727c;
-      font-weight: 600;
+      color: #0d0d0d;
+      font-weight: 500;
       user-select: none;
     }
-    .source-list { margin: 8px 0 0; padding-left: 22px; }
-    .source-item { margin: 7px 0; padding-left: 2px; }
-    .source-file { color: #25454d; font-weight: 600; }
-    .source-heading { margin-top: 2px; color: #557078; }
-    .source-meta { margin-top: 2px; color: #788f96; }
-    .source-similarity { margin-left: 10px; }
+    .source-list { margin: 10px 0 0; padding-left: 24px; }
+    .source-item { margin: 8px 0; padding-left: 4px; }
+    .source-file { color: #0d0d0d; font-weight: 500; }
+    .source-heading { margin-top: 3px; color: #8e8e93; }
+    .source-meta { margin-top: 3px; color: #b0b0b5; }
+    .source-similarity { margin-left: 12px; }
     .rag-notice {
-      margin-top: 9px;
-      padding-top: 7px;
-      border-top: 1px solid #e0eaec;
-      color: #8a999e;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #ececec;
+      color: #b0b0b5;
       font-size: 11px;
     }
-    .message-time { margin-top: 6px; color: #788f96; font-size: 12px; line-height: 1; text-align: right; }
+    .message-time {
+      margin-top: 4px;
+      color: #b0b0b5;
+      font-size: 10px;
+      line-height: 1;
+      text-align: right;
+    }
     #empty-state {
       display: flex;
-      min-height: calc(100vh - 28px);
+      min-height: calc(100vh - 32px);
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #788f96;
+      color: #b0b0b5;
       text-align: center;
+      gap: 12px;
     }
+    #empty-state .mark {
+      display: inline-flex;
+      width: 40px;
+      height: 40px;
+      align-items: center;
+      justify-content: center;
+      background: #0d0d0d;
+      color: #fff;
+      border-radius: 12px;
+      font-family: Consolas, monospace;
+      font-size: 15px;
+    }
+    #empty-state .hint { font-size: 15px; color: #8e8e93; }
+    #empty-state .sub { font-size: 12px; color: #b0b0b5; }
   </style>
 </head>
 <body>
@@ -186,7 +220,16 @@
       const showEmptyState = () => {
         const state = document.createElement('div');
         state.id = 'empty-state';
-        state.textContent = '开始一段新的对话吧';
+        const mark = document.createElement('span');
+        mark.className = 'mark';
+        mark.textContent = '>_';
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = '开始一段新的对话';
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        sub.textContent = '在下方输入框描述你的问题';
+        state.append(mark, hint, sub);
         container.replaceChildren(state);
       };
 
